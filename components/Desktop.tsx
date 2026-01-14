@@ -5,7 +5,8 @@ import {
   Calendar as CalendarIcon, CheckSquare, Activity, User, 
   PlusCircle, FileText, ClipboardList, Clock, ArrowLeft,
   ChevronRight, MoreHorizontal, Pencil, Save, XCircle,
-  Minimize, RotateCcw, AlertCircle, CalendarDays, CheckCircle2, Circle
+  Minimize, RotateCcw, AlertCircle, CalendarDays, CheckCircle2, Circle,
+  Filter, Check
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { HUBS, MOCK_NOTIFICATIONS, MOCK_TASKS, CLIENT_INTAKE_CONTEXT, DEFAULT_CLIENT } from '../constants';
@@ -52,6 +53,8 @@ const calculateAge = (dobString: string) => {
 const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[], onUpdateTask: (t: Task) => void, onOpenTaskModal: () => void }) => {
   const highPriorityTasks = tasks.filter(t => !t.isCompleted && t.priority === 'High');
   const otherTasks = tasks.filter(t => !t.isCompleted && t.priority !== 'High').slice(0, 3);
+  const completedTasks = tasks.filter(t => t.isCompleted).slice(0, 5); // Show last 5 completed
+  
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
 
@@ -61,7 +64,9 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
   };
 
   const saveEdit = (task: Task) => {
-    onUpdateTask({ ...task, title: editTitle });
+    if (editTitle.trim()) {
+      onUpdateTask({ ...task, title: editTitle });
+    }
     setEditingId(null);
   };
 
@@ -72,11 +77,12 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
             <h2 className="text-2xl font-bold text-gray-900">Top Priorities</h2>
             <p className="text-gray-500">Focus on these high-impact items today.</p>
           </div>
-          <button onClick={onOpenTaskModal} className="bg-rose-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-rose-700 transition">
+          <button onClick={onOpenTaskModal} className="bg-rose-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-rose-700 transition shadow-sm">
              <PlusCircle size={18} /> Add Priority
           </button>
        </div>
 
+       {/* High Priority Section */}
        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="p-4 border-b border-gray-200 bg-rose-50 flex items-center gap-2">
              <AlertCircle size={18} className="text-rose-600" />
@@ -96,26 +102,27 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
                    </button>
                    <div className="flex-1">
                       {editingId === task.id ? (
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center">
                           <input 
-                            className="flex-1 border rounded px-2 py-1 text-sm"
+                            className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-indigo-500"
                             value={editTitle}
                             onChange={(e) => setEditTitle(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && saveEdit(task)}
                             autoFocus
                           />
-                          <button onClick={() => saveEdit(task)} className="text-green-600"><Save size={16}/></button>
-                          <button onClick={() => setEditingId(null)} className="text-gray-400"><X size={16}/></button>
+                          <button onClick={() => saveEdit(task)} className="text-green-600 hover:bg-green-50 p-1 rounded"><Save size={16}/></button>
+                          <button onClick={() => setEditingId(null)} className="text-gray-400 hover:bg-gray-100 p-1 rounded"><X size={16}/></button>
                         </div>
                       ) : (
-                        <>
+                        <div>
                           <p className="font-medium text-gray-800">{task.title}</p>
                           {task.dueDate && <p className="text-xs text-rose-600 mt-1">Due: {task.dueDate}</p>}
-                        </>
+                        </div>
                       )}
                    </div>
                    {editingId !== task.id && (
                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                        <button onClick={() => startEditing(task)} className="text-gray-400 hover:text-indigo-600"><Pencil size={14} /></button>
+                        <button onClick={() => startEditing(task)} className="text-gray-400 hover:text-indigo-600 p-1"><Pencil size={14} /></button>
                         <div className="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded font-medium">High</div>
                      </div>
                    )}
@@ -124,6 +131,7 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
           </div>
        </div>
 
+       {/* Other Tasks Section */}
        {otherTasks.length > 0 && (
          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden opacity-80">
             <div className="p-4 border-b border-gray-200 bg-gray-50">
@@ -144,86 +152,152 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
             </div>
          </div>
        )}
+
+       {/* Completed Section */}
+       {completedTasks.length > 0 && (
+         <div className="pt-4 border-t border-gray-200/50">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 px-2">Completed Today</h3>
+            <div className="space-y-1">
+               {completedTasks.map(task => (
+                  <div key={task.id} className="p-2 flex items-center gap-3 text-gray-400">
+                     <CheckCircle2 size={16} className="text-green-500" />
+                     <span className="line-through text-sm">{task.title}</span>
+                     <button 
+                       onClick={() => onUpdateTask({...task, isCompleted: false})}
+                       className="ml-auto text-xs hover:underline text-gray-400 hover:text-indigo-600"
+                     >
+                       Undo
+                     </button>
+                  </div>
+               ))}
+            </div>
+         </div>
+       )}
     </div>
   );
 };
 
 const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: Client[], onUpdateTask: (t: Task) => void }) => {
-  const urgentTasks = tasks.filter(t => !t.isCompleted && (t.priority === 'High' || (t.dueDate && new Date(t.dueDate) <= new Date(new Date().setDate(new Date().getDate() + 2)))));
+  const [filter, setFilter] = useState<'all' | 'overdue' | 'today'>('all');
+  
+  // Base set of urgent items
+  const allUrgent = tasks.filter(t => !t.isCompleted && (t.priority === 'High' || (t.dueDate && new Date(t.dueDate) <= new Date(new Date().setDate(new Date().getDate() + 2)))));
+  
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const filteredTasks = allUrgent.filter(t => {
+    if (filter === 'all') return true;
+    if (filter === 'overdue') return t.dueDate && t.dueDate < todayStr;
+    if (filter === 'today') return t.dueDate === todayStr;
+    return true;
+  });
   
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <div>
+    <div className="space-y-6 animate-in fade-in duration-300 h-full flex flex-col">
+      <div className="shrink-0">
          <h2 className="text-2xl font-bold text-gray-900">Urgent Follow Ups</h2>
          <p className="text-gray-500">Time-sensitive tasks and client needs.</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-         {urgentTasks.length === 0 && (
-            <div className="p-12 text-center text-gray-400 bg-white rounded-xl border border-gray-200 border-dashed">
-               No urgent follow-ups right now.
-            </div>
-         )}
-         {urgentTasks.map(task => {
-            const client = clients.find(c => c.id === task.clientId);
-            return (
-               <div key={task.id} className="bg-white p-4 rounded-xl border border-l-4 border-gray-200 border-l-rose-500 shadow-sm flex flex-col md:flex-row items-start md:items-center gap-4">
-                  <div className="flex-1 w-full">
-                     <div className="flex items-center gap-2 mb-1">
-                        <span className="font-bold text-gray-800">{task.title}</span>
-                        {client && <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">{client.preferredName}</span>}
-                     </div>
-                     <div className="flex flex-wrap gap-4 text-xs text-gray-500 items-center mt-2">
-                        <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded border border-gray-200">
-                           <span>Due:</span>
-                           <input 
-                              type="date" 
-                              className="bg-transparent border-none outline-none text-gray-700 p-0 h-auto font-medium"
-                              value={task.dueDate || ''}
-                              onChange={(e) => onUpdateTask({...task, dueDate: e.target.value})}
-                           />
-                        </div>
-                        <span className="text-rose-600 font-medium">Priority: {task.priority}</span>
-                     </div>
-                  </div>
-                  <button 
-                     onClick={() => onUpdateTask({...task, isCompleted: true})}
-                     className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition flex items-center gap-1 shrink-0"
-                  >
-                     <CheckCircle2 size={14} /> Complete
-                  </button>
-               </div>
-            );
-         })}
+      <div className="flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 gap-4">
+           {filteredTasks.length === 0 && (
+              <div className="p-12 text-center text-gray-400 bg-white rounded-xl border border-gray-200 border-dashed">
+                 No {filter !== 'all' ? filter : ''} urgent follow-ups found.
+              </div>
+           )}
+           {filteredTasks.map(task => {
+              const client = clients.find(c => c.id === task.clientId);
+              const isOverdue = task.dueDate && task.dueDate < todayStr;
+              return (
+                 <div key={task.id} className={`bg-white p-4 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row items-start md:items-center gap-4 group transition-all
+                    ${isOverdue ? 'border-l-red-500 border-red-200 bg-red-50/20' : 'border-l-amber-500 border-gray-200'}
+                 `}>
+                    <div className="flex-1 w-full">
+                       <div className="flex items-center gap-2 mb-1">
+                          <span className="font-bold text-gray-800">{task.title}</span>
+                          {client && <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">{client.preferredName}</span>}
+                          {isOverdue && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase">Overdue</span>}
+                       </div>
+                       <div className="flex flex-wrap gap-4 text-xs text-gray-500 items-center mt-2">
+                          <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-gray-200 hover:border-gray-300 transition-colors">
+                             <span className="text-gray-400">Due:</span>
+                             <input 
+                                type="date" 
+                                className="bg-transparent border-none outline-none text-gray-700 p-0 h-auto font-medium cursor-pointer w-24"
+                                value={task.dueDate || ''}
+                                onChange={(e) => onUpdateTask({...task, dueDate: e.target.value})}
+                             />
+                          </div>
+                          <span className="text-amber-600 font-medium bg-amber-50 px-2 py-0.5 rounded">Priority: {task.priority}</span>
+                       </div>
+                    </div>
+                    <button 
+                       onClick={() => onUpdateTask({...task, isCompleted: true})}
+                       className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100"
+                    >
+                       <CheckCircle2 size={14} /> Complete
+                    </button>
+                 </div>
+              );
+           })}
+        </div>
+      </div>
+
+      {/* Filter Footer */}
+      <div className="shrink-0 pt-4 border-t border-gray-200 flex gap-2">
+         {['all', 'overdue', 'today'].map(f => (
+            <button 
+              key={f}
+              onClick={() => setFilter(f as any)}
+              className={`px-4 py-2 rounded-full text-xs font-semibold capitalize transition
+                ${filter === f 
+                  ? 'bg-gray-800 text-white shadow-md' 
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}
+              `}
+            >
+               {f}
+            </button>
+         ))}
       </div>
     </div>
   );
 };
 
-const WeeklyView = ({ tasks, onAddTaskForDay }: { tasks: Task[], onAddTaskForDay: (date: string) => void }) => {
+const WeeklyView = ({ tasks, onAddTaskForDay, notes, onUpdateNotes }: { tasks: Task[], onAddTaskForDay: (date: string) => void, notes: string, onUpdateNotes: (n: string) => void }) => {
   const [currentWeek, setCurrentWeek] = useState<Date[]>([]);
 
   useEffect(() => {
-    const curr = new Date();
-    const first = curr.getDate() - curr.getDay() + 1; // First day is Monday
-    const week = [];
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 (Sun) - 6 (Sat)
+    const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + distanceToMonday);
+    
+    const days = [];
     for (let i = 0; i < 5; i++) {
-      const day = new Date(curr.setDate(first + i));
-      week.push(new Date(day));
+        const d = new Date(monday);
+        d.setDate(monday.getDate() + i);
+        days.push(d);
     }
-    setCurrentWeek(week);
+    setCurrentWeek(days);
   }, []);
 
   const todayStr = new Date().toISOString().split('T')[0];
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <div>
-         <h2 className="text-2xl font-bold text-gray-900">Weekly Overview</h2>
-         <p className="text-gray-500">At a glance schedule and deadlines.</p>
+    <div className="space-y-6 animate-in fade-in duration-300 flex flex-col h-full">
+      <div className="flex justify-between items-end shrink-0">
+         <div>
+            <h2 className="text-2xl font-bold text-gray-900">Weekly Overview</h2>
+            <p className="text-gray-500">Structured summary of tasks and deadlines.</p>
+         </div>
+         <div className="text-sm text-gray-400">
+            {currentWeek.length > 0 && `${currentWeek[0].toLocaleDateString(undefined, {month:'short', day:'numeric'})} - ${currentWeek[4].toLocaleDateString(undefined, {month:'short', day:'numeric'})}`}
+         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 min-h-[300px] flex-1">
          {currentWeek.map(dateObj => {
             const dateStr = dateObj.toISOString().split('T')[0];
             const isToday = dateStr === todayStr;
@@ -231,33 +305,47 @@ const WeeklyView = ({ tasks, onAddTaskForDay }: { tasks: Task[], onAddTaskForDay
             const dayTasks = tasks.filter(t => !t.isCompleted && t.dueDate === dateStr);
 
             return (
-              <div key={dateStr} className={`bg-white rounded-xl border p-4 min-h-[300px] flex flex-col ${isToday ? 'border-indigo-500 ring-1 ring-indigo-500 shadow-md' : 'border-gray-200'}`}>
-                 <div className="flex justify-between items-start mb-3">
+              <div key={dateStr} className={`bg-white rounded-xl border flex flex-col ${isToday ? 'border-indigo-500 ring-1 ring-indigo-500 shadow-md z-10' : 'border-gray-200'}`}>
+                 <div className={`p-3 border-b ${isToday ? 'bg-indigo-50 border-indigo-100' : 'bg-gray-50 border-gray-100'} flex justify-between items-center`}>
                     <div>
-                       <h3 className={`font-bold ${isToday ? 'text-indigo-600' : 'text-gray-700'}`}>{dayName}</h3>
-                       <p className="text-xs text-gray-400">{dateObj.toLocaleDateString()}</p>
+                       <h3 className={`font-bold text-sm ${isToday ? 'text-indigo-700' : 'text-gray-700'}`}>{dayName}</h3>
+                       <p className="text-[10px] text-gray-400 font-medium">{dateObj.getDate()}</p>
                     </div>
                     <button 
                       onClick={() => onAddTaskForDay(dateStr)}
-                      className="text-gray-300 hover:text-indigo-600 transition"
+                      className={`p-1 rounded hover:bg-white transition ${isToday ? 'text-indigo-600' : 'text-gray-400'}`}
+                      title="Add task for this day"
                     >
                        <PlusCircle size={16} />
                     </button>
                  </div>
                  
-                 <div className="space-y-2 flex-1 overflow-y-auto">
+                 <div className="flex-1 p-2 space-y-2 overflow-y-auto bg-gray-50/30">
                     {dayTasks.length === 0 && (
-                       <div className="text-[10px] text-gray-300 text-center py-4 italic">No tasks</div>
+                       <div className="text-[10px] text-gray-300 text-center py-8 italic select-none">Empty</div>
                     )}
                     {dayTasks.map(t => (
-                       <div key={t.id} className={`text-xs p-2 rounded border border-l-2 ${t.priority === 'High' ? 'bg-rose-50 border-rose-200 border-l-rose-500 text-rose-800' : 'bg-gray-50 border-gray-100 border-l-gray-400 text-gray-700'}`}>
-                          {t.title}
+                       <div key={t.id} className={`text-xs p-2 rounded border shadow-sm ${t.priority === 'High' ? 'bg-white border-rose-200 border-l-4 border-l-rose-500' : 'bg-white border-gray-200 border-l-4 border-l-gray-300'}`}>
+                          <div className="font-medium text-gray-800 mb-1">{t.title}</div>
+                          {t.priority === 'High' && <div className="text-[10px] text-rose-600 font-bold uppercase">High Priority</div>}
                        </div>
                     ))}
                  </div>
               </div>
             );
          })}
+      </div>
+
+      <div className="shrink-0 bg-white p-4 rounded-xl border border-gray-200 shadow-sm mt-4">
+         <h3 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
+            <FileText size={16} className="text-gray-400" /> Weekly Goals & Notes
+         </h3>
+         <textarea 
+            className="w-full h-20 bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:border-indigo-500 focus:bg-white outline-none transition resize-none"
+            placeholder="Jot down key objectives or reminders for this week..."
+            value={notes}
+            onChange={(e) => onUpdateNotes(e.target.value)}
+         />
       </div>
     </div>
   );
@@ -1106,11 +1194,14 @@ interface OSWindowProps {
   onUpdateTask: (task: Task) => void;
   onOpenTaskModal: () => void;
   onAddTaskForDay: (date: string) => void;
+  notes: string;
+  onUpdateNotes: (n: string) => void;
 }
 
 const OSWindow: React.FC<OSWindowProps> = ({ 
   win, isActive, onActivate, onClose, onMinimize, onOpenChat, clients, activities, osActivities, tasks,
-  onAddClient, onUpdateClient, onOpenIntake, onLogActivity, resetViewTrigger, onUpdateTask, onOpenTaskModal, onAddTaskForDay 
+  onAddClient, onUpdateClient, onOpenIntake, onLogActivity, resetViewTrigger, onUpdateTask, onOpenTaskModal, onAddTaskForDay,
+  notes, onUpdateNotes 
 }) => {
   const hub = HUBS.find(h => h.id === win.hubId);
   const isActivityLog = win.hubId === 'activity-log';
@@ -1213,7 +1304,7 @@ const OSWindow: React.FC<OSWindowProps> = ({
        return <UrgentView tasks={tasks} clients={clients} onUpdateTask={onUpdateTask} />;
     }
     if (win.hubId === 'weekly') {
-       return <WeeklyView tasks={tasks} onAddTaskForDay={onAddTaskForDay} />;
+       return <WeeklyView tasks={tasks} onAddTaskForDay={onAddTaskForDay} notes={notes} onUpdateNotes={onUpdateNotes} />;
     }
 
     if (!hub) return null;
@@ -1351,6 +1442,7 @@ export default function Desktop() {
   
   // Data
   const [clients, setClients] = useState<Client[]>([DEFAULT_CLIENT as unknown as Client]); 
+  const [weeklyNotes, setWeeklyNotes] = useState("Focus on grant reporting and hiring plan.");
   const [activities, setActivities] = useState<ClientActivity[]>([
     {
        id: 'act-1',
@@ -1959,6 +2051,8 @@ export default function Desktop() {
           onUpdateTask={handleUpdateTask}
           onOpenTaskModal={() => handleOpenTaskModal({initialPriority: 'High'})}
           onAddTaskForDay={(date) => handleOpenTaskModal({initialDate: date})}
+          notes={weeklyNotes}
+          onUpdateNotes={setWeeklyNotes}
         />
       ))}
       

@@ -64,11 +64,16 @@ const handleWindowOpen = (state: OSState, payload: any): OSState => {
   
   const newWindowID = generateID('win');
   const isModal = appID === 'note-editor' || appID === 'intake-wizard';
+  
+  // Default dimensions based on app type
   const defaultWidth = appID === 'note-editor' ? 520 : (appID === 'intake-wizard' ? 600 : 900);
   const defaultHeight = appID === 'note-editor' ? 420 : (appID === 'intake-wizard' ? 700 : 600);
 
+  // Stagger position for non-modals
   const count = Object.keys(state.windows.byID).length;
-  const position = { x: 100 + (count * 30), y: 50 + (count * 30) };
+  const position = isModal 
+     ? { x: (window.innerWidth - defaultWidth) / 2, y: (window.innerHeight - defaultHeight) / 2 }
+     : { x: 100 + (count * 30), y: 50 + (count * 30) };
 
   const newWindow: AppWindow = {
     id: newWindowID,
@@ -85,9 +90,11 @@ const handleWindowOpen = (state: OSState, payload: any): OSState => {
   };
 
   const newRunning = state.dock.runningAppIDs.includes(appID) ? state.dock.runningAppIDs : [...state.dock.runningAppIDs, appID];
+  
+  // Overlay logic: If modal, enable blur
   const newOverlays = isModal ? { blurActive: true, activeModalWindowID: newWindowID } : state.system.overlays;
 
-  let newState = {
+  const newState = {
     ...state,
     windows: { 
        byID: { ...state.windows.byID, [newWindowID]: newWindow }, 
@@ -107,18 +114,21 @@ const handleWindowClose = (state: OSState, payload: any): OSState => {
 
   const { [windowID]: _, ...remainingByID } = state.windows.byID;
   const newOrder = state.windows.order.filter(id => id !== windowID);
+  
+  // Focus lifecycle: Focus the next most recent window
   const newFocused = newOrder.length > 0 ? newOrder[newOrder.length - 1] : null;
 
   const appID = win.hubId;
   const hasOtherWindows = Object.values(remainingByID).some(w => w.hubId === appID);
   const newRunning = hasOtherWindows ? state.dock.runningAppIDs : state.dock.runningAppIDs.filter(id => id !== appID);
 
+  // Overlay lifecycle: Disable blur if the active modal closed
   let newOverlays = state.system.overlays;
   if (state.system.overlays.activeModalWindowID === windowID) {
     newOverlays = { blurActive: false, activeModalWindowID: null };
   }
 
-  let newState = {
+  const newState = {
     ...state,
     windows: { byID: remainingByID, order: newOrder, focusedWindowID: newFocused },
     dock: { ...state.dock, runningAppIDs: newRunning },
@@ -132,12 +142,20 @@ const handleWindowMinimize = (state: OSState, payload: any): OSState => {
   const win = state.windows.byID[windowID];
   if (!win) return state;
   
+  // Remove focus if the minimized window was focused
+  let newFocused = state.windows.focusedWindowID;
+  if (state.windows.focusedWindowID === windowID) {
+      // Find the next available window in order that is NOT minimized
+      const visibleWindows = state.windows.order.filter(id => id !== windowID && !state.windows.byID[id].isMinimized);
+      newFocused = visibleWindows.length > 0 ? visibleWindows[visibleWindows.length - 1] : null;
+  }
+
   const newState = {
     ...state,
     windows: { 
        ...state.windows, 
        byID: { ...state.windows.byID, [windowID]: { ...win, isMinimized: true } },
-       focusedWindowID: state.windows.focusedWindowID === windowID ? null : state.windows.focusedWindowID
+       focusedWindowID: newFocused
     }
   };
   return logActivity(newState, 'System', `Minimized ${win.title}`, 'WindowManager');
@@ -148,7 +166,9 @@ const handleWindowRestore = (state: OSState, payload: any): OSState => {
   const win = state.windows.byID[windowID];
   if (!win) return state;
 
+  // Restore puts window at the top of the stack (end of order)
   const newOrder = [...state.windows.order.filter(id => id !== windowID), windowID];
+  
   const newState = {
     ...state,
     windows: { 
@@ -165,10 +185,12 @@ const handleWindowFocus = (state: OSState, payload: any): OSState => {
   const { windowID } = payload;
   if (!state.windows.byID[windowID]) return state;
   
-  // If already focused and top, do nothing
+  // Optimization: If already focused and at top of stack, ignore
   if (state.windows.focusedWindowID === windowID && state.windows.order[state.windows.order.length - 1] === windowID) return state;
 
+  // Move to end of order to bring to front visually
   const newOrder = [...state.windows.order.filter(id => id !== windowID), windowID];
+  
   return {
     ...state,
     windows: { ...state.windows, order: newOrder, focusedWindowID: windowID }
@@ -181,6 +203,7 @@ const handleWindowMaximizeToggle = (state: OSState, payload: any): OSState => {
   if (!win) return state;
 
   const isMax = !win.isMaximized;
+  // If maximizing, save current bounds. If unmaximizing, restore from lastBounds.
   const updatedWin = { 
      ...win, 
      isMaximized: isMax,
@@ -197,32 +220,35 @@ const handleWindowMaximizeToggle = (state: OSState, payload: any): OSState => {
 const handleWindowDrag = (state: OSState, payload: any): OSState => {
   const { windowID, x, y } = payload;
   const win = state.windows.byID[windowID];
-  if (!win || win.isMaximized) return state;
+  if (!win || win.isMaximized) return state; // Locked when maximized
+  
   return {
     ...state,
     windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: { ...win, position: { x, y } } } }
   };
 };
 
-// Dock Handlers
+// --- Dock Handlers ---
 const handleDockIconClick = (state: OSState, payload: any): OSState => {
   const { appID } = payload;
   const openWindows = Object.values(state.windows.byID).filter(w => w.hubId === appID);
   
+  // Case 1: No windows open -> Launch (Create)
   if (openWindows.length === 0) {
      return handleWindowOpen(state, { appID });
   }
   
-  // If minimized exists, restore the last one
+  // Case 2: Minimized window exists -> Restore & Focus the last one
   const minimized = openWindows.filter(w => w.isMinimized);
   if (minimized.length > 0) {
      const lastMinimized = minimized[minimized.length - 1];
+     // Chain handlers: Restore state -> Focus state
      let s = handleWindowRestore(state, { windowID: lastMinimized.id });
      return handleWindowFocus(s, { windowID: lastMinimized.id });
   }
 
-  // Else focus the last active one
-  const lastActive = openWindows[openWindows.length - 1];
+  // Case 3: Windows open -> Focus the most recently active one
+  const lastActive = openWindows[openWindows.length - 1]; // windows are ordered by z-index/recency
   return handleWindowFocus(state, { windowID: lastActive.id });
 };
 
@@ -235,7 +261,7 @@ const handleDockPinToggle = (state: OSState, payload: any): OSState => {
   return logActivity(newState, 'System', isPinned ? `Unpinned ${appID}` : `Pinned ${appID}`, 'Dock');
 };
 
-// Data Handlers
+// --- Data Handlers ---
 const handleNoteSave = (state: OSState, payload: any): OSState => {
   const { mode, noteID, title, body, linkedClientID } = payload;
   const id = noteID || generateID('note');
@@ -271,7 +297,7 @@ const handleNoteSave = (state: OSState, payload: any): OSState => {
   };
   newState = logActivity(newState, 'Note', `${mode === 'create' ? 'Created' : 'Updated'} note`, title);
   
-  // Close the window if windowID is passed (it should be)
+  // Close the window after save
   if (payload.windowID) {
      return handleWindowClose(newState, { windowID: payload.windowID });
   }
@@ -279,8 +305,7 @@ const handleNoteSave = (state: OSState, payload: any): OSState => {
 };
 
 const handleClientCreateFromIntake = (state: OSState, payload: any): OSState => {
-  const { intakeID, clientData } = payload; // Assuming clientData is passed or we look up intake
-  // Since we don't have full intake persistence in this demo, accepting clientData directly
+  const { clientData } = payload;
   const client: Client = {
       ...clientData,
       id: generateID('client'),
@@ -293,12 +318,14 @@ const handleClientCreateFromIntake = (state: OSState, payload: any): OSState => 
      data: { ...state.data, clients: { ...state.data.clients, [client.id]: client } }
   };
   newState = logActivity(newState, 'Intake', 'Client created from intake', client.preferredName);
-  // Open client profile
+  
+  // Automatically open the new client profile
   return handleWindowOpen(newState, { appID: 'clients', extraState: { navigationState: { selectedClientId: client.id } } });
 };
 
 const handleIntakeApprove = (state: OSState, payload: any): OSState => {
    const { clientData, windowID } = payload;
+   // Chain: Create Client -> Close Wizard
    let s = handleClientCreateFromIntake(state, { clientData });
    return handleWindowClose(s, { windowID });
 };
@@ -318,7 +345,6 @@ const ROUTES: Record<string, (state: OSState, payload: any) => OSState> = {
   DOCK_PIN_TOGGLE: handleDockPinToggle,
   
   NOTE_SAVE: handleNoteSave,
-  
   INTAKE_APPROVE: handleIntakeApprove,
   
   SIDEBAR_PAGE_CHANGE: (state, { windowID, newPage }) => {
@@ -525,6 +551,9 @@ const IntakeWizardContent = ({ onClose, onApprove }: any) => {
 };
 
 const OSWindow = ({ win, dispatch, isActive, state }: { win: AppWindow, dispatch: React.Dispatch<OSEvent>, isActive: boolean, state: OSState }) => {
+  // --- Lifecycle Phase 5: Minimized windows are not rendered on desktop ---
+  if (win.isMinimized) return null;
+
   const hub = HUBS.find(h => h.id === win.hubId);
   const isModal = win.hubId === 'note-editor' || win.hubId === 'intake-wizard';
   
@@ -555,14 +584,19 @@ const OSWindow = ({ win, dispatch, isActive, state }: { win: AppWindow, dispatch
     };
   }, [isDragging, dragOffset, win.isMaximized, dispatch, win.id]);
 
+  // --- Strict Z-Index Management ---
+  // Modals (9999) > Active Windows (100) > Inactive Windows (10-50 based on order)
+  const baseZIndex = 10 + win.zIndex; // win.zIndex is derived from order in reducer
+  const calculatedZIndex = isModal ? 9999 : (isActive ? 100 : baseZIndex);
+
   const style = win.isMaximized 
-    ? { top: 32, left: 0, width: '100%', height: 'calc(100vh - 4rem)', zIndex: isActive ? 9000 : win.zIndex }
-    : { top: win.position.y, left: win.position.x, width: win.size?.width, height: win.size?.height, zIndex: isActive ? 9000 : win.zIndex };
+    ? { top: 32, left: 0, width: '100%', height: 'calc(100vh - 4rem)', zIndex: calculatedZIndex }
+    : { top: win.position.y, left: win.position.x, width: win.size?.width, height: win.size?.height, zIndex: calculatedZIndex };
 
   // --- Modal Window Shell ---
   if (isModal) {
      return (
-       <div ref={windowRef} className={`fixed bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 ${isActive ? 'ring-2 ring-indigo-200' : ''}`} style={style} onClick={() => dispatch({ type: 'WINDOW_FOCUS', source: 'OSWindow', payload: { windowID: win.id } })}>
+       <div ref={windowRef} className={`fixed bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 ${isActive ? 'ring-4 ring-indigo-200' : ''}`} style={style} onClick={() => dispatch({ type: 'WINDOW_FOCUS', source: 'OSWindow', payload: { windowID: win.id } })}>
           <div className={`h-12 ${win.hubId === 'intake-wizard' ? 'bg-teal-600' : 'bg-indigo-600'} flex items-center justify-between px-4 shrink-0 cursor-move text-white`} onMouseDown={handleMouseDown}>
              <div className="font-semibold flex items-center gap-2">
                {win.hubId === 'intake-wizard' ? <UserPlus size={18}/> : <FileText size={18}/>} 

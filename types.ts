@@ -74,6 +74,19 @@ export interface Task {
   updatedAt: string;
 }
 
+export interface Partner {
+  id: string;
+  category: 'Shelters' | 'County Agencies' | 'Housing Partners' | 'Legal Aid';
+  name: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  website?: string;
+  referralProcess?: string;
+  notes?: string;
+}
+
 export interface ControlPanelData {
   priorities: string[]; // Task IDs
   urgentFollowUps: string[]; // Task IDs

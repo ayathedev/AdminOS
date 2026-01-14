@@ -3,14 +3,15 @@ import {
   Wifi, Battery, Bell, Search, LayoutGrid, 
   X, Minus, Square, Send, Maximize2, Minimize2,
   Calendar as CalendarIcon, CheckSquare, Activity, User, 
-  PlusCircle, FileText, ClipboardList, Clock, ArrowLeft,
+  PlusCircle, FileText, ClipboardList, Clock as ClockIcon, ArrowLeft,
   ChevronRight, MoreHorizontal, Pencil, Save, XCircle,
   Minimize, RotateCcw, AlertCircle, CalendarDays, CheckCircle2, Circle,
-  Filter, Check
+  Filter, Check, Handshake, MapPin, Phone, Mail, Globe, Trash2,
+  Sparkles
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
-import { HUBS, MOCK_NOTIFICATIONS, MOCK_TASKS, CLIENT_INTAKE_CONTEXT, DEFAULT_CLIENT } from '../constants';
-import { Hub, AppWindow, ChatMessage, Client, ClientActivity, OSActivity, Note, Task } from '../types';
+import { HUBS, MOCK_NOTIFICATIONS, MOCK_TASKS, CLIENT_INTAKE_CONTEXT, DEFAULT_CLIENT, INITIAL_PARTNERS } from '../constants';
+import { Hub, AppWindow, ChatMessage, Client, ClientActivity, OSActivity, Note, Task, Partner } from '../types';
 import { generateOSResponse } from '../services/geminiService';
 
 // --- Helper Components ---
@@ -50,25 +51,10 @@ const calculateAge = (dobString: string) => {
 
 // --- View Components ---
 
-const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[], onUpdateTask: (t: Task) => void, onOpenTaskModal: () => void }) => {
+const PrioritiesView = ({ tasks, onUpdateTask, onEditTask, onOpenTaskModal }: { tasks: Task[], onUpdateTask: (t: Task) => void, onEditTask: (t: Task) => void, onOpenTaskModal: () => void }) => {
   const highPriorityTasks = tasks.filter(t => !t.completed && t.priority === 'High');
   const otherTasks = tasks.filter(t => !t.completed && t.priority !== 'High').slice(0, 3);
-  const completedTasks = tasks.filter(t => t.completed).slice(0, 5); // Show last 5 completed
-  
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState('');
-
-  const startEditing = (task: Task) => {
-    setEditingId(task.id);
-    setEditTitle(task.title);
-  };
-
-  const saveEdit = (task: Task) => {
-    if (editTitle.trim()) {
-      onUpdateTask({ ...task, title: editTitle, updatedAt: new Date().toISOString() });
-    }
-    setEditingId(null);
-  };
+  const completedTasks = tasks.filter(t => t.completed).slice(0, 5); 
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -95,37 +81,22 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
              {highPriorityTasks.map(task => (
                 <div key={task.id} className="p-4 flex items-start gap-3 hover:bg-gray-50 transition group">
                    <button 
-                     onClick={() => onUpdateTask({...task, completed: true, updatedAt: new Date().toISOString()})}
+                     onClick={(e) => { e.stopPropagation(); onUpdateTask({...task, completed: true, updatedAt: new Date().toISOString()})}}
                      className="mt-0.5 text-gray-300 hover:text-green-500 transition"
                    >
                       <Circle size={20} />
                    </button>
-                   <div className="flex-1">
-                      {editingId === task.id ? (
-                        <div className="flex gap-2 items-center">
-                          <input 
-                            className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm outline-none focus:border-indigo-500"
-                            value={editTitle}
-                            onChange={(e) => setEditTitle(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && saveEdit(task)}
-                            autoFocus
-                          />
-                          <button onClick={() => saveEdit(task)} className="text-green-600 hover:bg-green-50 p-1 rounded"><Save size={16}/></button>
-                          <button onClick={() => setEditingId(null)} className="text-gray-400 hover:bg-gray-100 p-1 rounded"><X size={16}/></button>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="font-medium text-gray-800">{task.title}</p>
-                          {task.dueDate && <p className="text-xs text-rose-600 mt-1">Due: {task.dueDate}</p>}
-                        </div>
-                      )}
+                   <div 
+                     className="flex-1 cursor-pointer"
+                     onClick={() => onEditTask(task)}
+                   >
+                      <p className="font-medium text-gray-800">{task.title}</p>
+                      {task.dueDate && <p className="text-xs text-rose-600 mt-1">Due: {task.dueDate}</p>}
                    </div>
-                   {editingId !== task.id && (
-                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                        <button onClick={() => startEditing(task)} className="text-gray-400 hover:text-indigo-600 p-1"><Pencil size={14} /></button>
-                        <div className="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded font-medium">High</div>
-                     </div>
-                   )}
+                   <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                      <button onClick={() => onEditTask(task)} className="text-gray-400 hover:text-indigo-600 p-1"><Pencil size={14} /></button>
+                      <div className="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded font-medium">High</div>
+                   </div>
                 </div>
              ))}
           </div>
@@ -146,7 +117,7 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
                      >
                         <Circle size={20} />
                      </button>
-                     <span className="text-gray-700">{task.title}</span>
+                     <span className="text-gray-700 cursor-pointer hover:text-indigo-600" onClick={() => onEditTask(task)}>{task.title}</span>
                   </div>
                ))}
             </div>
@@ -177,12 +148,9 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
   );
 };
 
-const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: Client[], onUpdateTask: (t: Task) => void }) => {
+const UrgentView = ({ tasks, clients, onUpdateTask, onEditTask }: { tasks: Task[], clients: Client[], onUpdateTask: (t: Task) => void, onEditTask: (t: Task) => void }) => {
   const [filter, setFilter] = useState<'all' | 'overdue' | 'today'>('all');
-  
-  // Base set of urgent items
   const allUrgent = tasks.filter(t => !t.completed && (t.priority === 'High' || (t.dueDate && new Date(t.dueDate) <= new Date(new Date().setDate(new Date().getDate() + 2)))));
-  
   const todayStr = new Date().toISOString().split('T')[0];
 
   const filteredTasks = allUrgent.filter(t => {
@@ -210,8 +178,11 @@ const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: 
               const client = clients.find(c => c.id === task.linkedClient);
               const isOverdue = task.dueDate && task.dueDate < todayStr;
               return (
-                 <div key={task.id} className={`bg-white p-4 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row items-start md:items-center gap-4 group transition-all
-                    ${isOverdue ? 'border-l-red-500 border-red-200 bg-red-50/20' : 'border-l-amber-500 border-gray-200'}
+                 <div 
+                    key={task.id} 
+                    onClick={() => onEditTask(task)}
+                    className={`p-4 rounded-xl border-l-4 shadow-sm flex flex-col md:flex-row items-start md:items-center gap-4 group transition-all cursor-pointer hover:shadow-md
+                    ${isOverdue ? 'border-l-red-500 border-red-200 bg-red-50/20' : 'border-l-amber-500 border-gray-200 bg-white'}
                  `}>
                     <div className="flex-1 w-full">
                        <div className="flex items-center gap-2 mb-1">
@@ -220,20 +191,15 @@ const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: 
                           {isOverdue && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase">Overdue</span>}
                        </div>
                        <div className="flex flex-wrap gap-4 text-xs text-gray-500 items-center mt-2">
-                          <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-gray-200 hover:border-gray-300 transition-colors">
+                          <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-gray-200">
                              <span className="text-gray-400">Due:</span>
-                             <input 
-                                type="date" 
-                                className="bg-transparent border-none outline-none text-gray-700 p-0 h-auto font-medium cursor-pointer w-24"
-                                value={task.dueDate || ''}
-                                onChange={(e) => onUpdateTask({...task, dueDate: e.target.value, updatedAt: new Date().toISOString()})}
-                             />
+                             <span className="font-medium text-gray-700">{task.dueDate || 'No Date'}</span>
                           </div>
                           <span className="text-amber-600 font-medium bg-amber-50 px-2 py-0.5 rounded">Priority: {task.priority}</span>
                        </div>
                     </div>
                     <button 
-                       onClick={() => onUpdateTask({...task, completed: true, updatedAt: new Date().toISOString()})}
+                       onClick={(e) => { e.stopPropagation(); onUpdateTask({...task, completed: true, updatedAt: new Date().toISOString()})}}
                        className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100"
                     >
                        <CheckCircle2 size={14} /> Complete
@@ -244,16 +210,13 @@ const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: 
         </div>
       </div>
 
-      {/* Filter Footer */}
       <div className="shrink-0 pt-4 border-t border-gray-200 flex gap-2">
          {['all', 'overdue', 'today'].map(f => (
             <button 
               key={f}
               onClick={() => setFilter(f as any)}
               className={`px-4 py-2 rounded-full text-xs font-semibold capitalize transition
-                ${filter === f 
-                  ? 'bg-gray-800 text-white shadow-md' 
-                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}
+                ${filter === f ? 'bg-gray-800 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}
               `}
             >
                {f}
@@ -264,12 +227,12 @@ const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: 
   );
 };
 
-const WeeklyView = ({ tasks, onAddTaskForDay, notes, onUpdateNotes }: { tasks: Task[], onAddTaskForDay: (date: string) => void, notes: string, onUpdateNotes: (n: string) => void }) => {
+const WeeklyView = ({ tasks, onAddTaskForDay, notes, onUpdateNotes, onEditTask }: { tasks: Task[], onAddTaskForDay: (date: string) => void, notes: string, onUpdateNotes: (n: string) => void, onEditTask: (t: Task) => void }) => {
   const [currentWeek, setCurrentWeek] = useState<Date[]>([]);
 
   useEffect(() => {
     const now = new Date();
-    const currentDay = now.getDay(); // 0 (Sun) - 6 (Sat)
+    const currentDay = now.getDay(); 
     const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
     const monday = new Date(now);
     monday.setDate(now.getDate() + distanceToMonday);
@@ -325,7 +288,7 @@ const WeeklyView = ({ tasks, onAddTaskForDay, notes, onUpdateNotes }: { tasks: T
                        <div className="text-[10px] text-gray-300 text-center py-8 italic select-none">Empty</div>
                     )}
                     {dayTasks.map(t => (
-                       <div key={t.id} className={`text-xs p-2 rounded border shadow-sm ${t.priority === 'High' ? 'bg-white border-rose-200 border-l-4 border-l-rose-500' : 'bg-white border-gray-200 border-l-4 border-l-gray-300'}`}>
+                       <div key={t.id} onClick={() => onEditTask(t)} className={`text-xs p-2 rounded border shadow-sm cursor-pointer hover:bg-gray-50 ${t.priority === 'High' ? 'bg-white border-rose-200 border-l-4 border-l-rose-500' : 'bg-white border-gray-200 border-l-4 border-l-gray-300'}`}>
                           <div className="font-medium text-gray-800 mb-1">{t.title}</div>
                           {t.priority === 'High' && <div className="text-[10px] text-rose-600 font-bold uppercase">High Priority</div>}
                        </div>
@@ -353,11 +316,11 @@ const WeeklyView = ({ tasks, onAddTaskForDay, notes, onUpdateNotes }: { tasks: T
 
 // --- Modals ---
 
-const QuickAddNoteModal = ({ onClose, clients, onSave }: { onClose: () => void, clients: Client[], onSave: (note: Note) => void }) => {
+const QuickAddNoteModal = ({ onClose, clients, onSave, preselectedClientId }: { onClose: () => void, clients: Client[], onSave: (note: Note) => void, preselectedClientId?: string }) => {
   const [summary, setSummary] = useState('');
   const [nextSteps, setNextSteps] = useState('');
-  const [clientId, setClientId] = useState<string>('');
-  const [type, setType] = useState<'client' | 'general'>('general');
+  const [clientId, setClientId] = useState<string>(preselectedClientId || '');
+  const [type, setType] = useState<'client' | 'general'>(preselectedClientId ? 'client' : 'general');
 
   const handleSave = () => {
     if (!summary.trim()) return;
@@ -406,6 +369,7 @@ const QuickAddNoteModal = ({ onClose, clients, onSave }: { onClose: () => void, 
                    placeholder="Brief summary of the note..."
                    value={summary}
                    onChange={e => setSummary(e.target.value)}
+                   autoFocus
                 />
              </div>
              <div>
@@ -426,24 +390,26 @@ const QuickAddNoteModal = ({ onClose, clients, onSave }: { onClose: () => void, 
   );
 };
 
-const QuickAddTaskModal = ({ onClose, clients, onSave, initialDate, initialPriority }: { onClose: () => void, clients: Client[], onSave: (task: Task) => void, initialDate?: string, initialPriority?: 'High'|'Medium'|'Low' }) => {
-  const [title, setTitle] = useState('');
-  const [clientId, setClientId] = useState<string>('');
-  const [priority, setPriority] = useState<'High'|'Medium'|'Low'|'Urgent'>(initialPriority || 'Medium');
-  const [dueDate, setDueDate] = useState(initialDate || '');
-  const [notes, setNotes] = useState('');
+// Unified Task Modal for Add and Edit
+const TaskModal = ({ onClose, clients, onSave, onDelete, initialData }: { onClose: () => void, clients: Client[], onSave: (task: Task) => void, onDelete?: (id: string) => void, initialData?: Partial<Task> }) => {
+  const [title, setTitle] = useState(initialData?.title || '');
+  const [clientId, setClientId] = useState<string>(initialData?.linkedClient || '');
+  const [priority, setPriority] = useState<'High'|'Medium'|'Low'|'Urgent'>(initialData?.priority || 'Medium');
+  const [dueDate, setDueDate] = useState(initialData?.dueDate || '');
+  const [notes, setNotes] = useState(initialData?.notes || '');
+  const isEditing = !!initialData?.id;
 
   const handleSave = () => {
     if (!title.trim()) return;
     onSave({
-      id: `task-${Date.now()}`,
+      id: initialData?.id || `task-${Date.now()}`,
       title,
       priority,
       dueDate,
       linkedClient: clientId || undefined,
-      completed: false,
+      completed: initialData?.completed || false,
       notes,
-      createdAt: new Date().toISOString(),
+      createdAt: initialData?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
     onClose();
@@ -454,7 +420,9 @@ const QuickAddTaskModal = ({ onClose, clients, onSave, initialDate, initialPrior
        <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose}></div>
        <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95">
           <div className="bg-rose-600 p-4 flex justify-between items-center text-white">
-             <h3 className="font-semibold flex items-center gap-2"><CheckSquare size={18}/> New Task</h3>
+             <h3 className="font-semibold flex items-center gap-2">
+               <CheckSquare size={18}/> {isEditing ? 'Edit Task' : 'New Task'}
+             </h3>
              <button onClick={onClose}><X size={20}/></button>
           </div>
           <div className="p-6 space-y-4">
@@ -514,9 +482,16 @@ const QuickAddTaskModal = ({ onClose, clients, onSave, initialDate, initialPrior
                    onChange={e => setNotes(e.target.value)}
                 />
              </div>
-             <button onClick={handleSave} className="w-full bg-rose-600 text-white py-2 rounded-lg font-medium hover:bg-rose-700 transition">
-                Create Task
-             </button>
+             <div className="flex gap-2">
+                {isEditing && onDelete && (
+                   <button onClick={() => { onDelete(initialData!.id!); onClose(); }} className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg font-medium hover:bg-red-50 hover:text-red-600 transition">
+                      <Trash2 size={18} />
+                   </button>
+                )}
+                <button onClick={handleSave} className="flex-1 bg-rose-600 text-white py-2 rounded-lg font-medium hover:bg-rose-700 transition">
+                   {isEditing ? 'Save Changes' : 'Create Task'}
+                </button>
+             </div>
           </div>
        </div>
     </div>
@@ -581,9 +556,8 @@ const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void
       try {
         const jsonStr = jsonMatch[1];
         const clientData = JSON.parse(jsonStr);
-        displayText = responseText.replace(/```json[\s\S]*?```/, '').trim(); // Remove JSON from display
+        displayText = responseText.replace(/```json[\s\S]*?```/, '').trim(); 
         
-        // Ensure we have an ID
         const newClient: Client = {
           id: `client-${Date.now()}`,
           preferredName: clientData.preferredName || "Unknown",
@@ -595,11 +569,7 @@ const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void
         };
 
         onClientCreated(newClient);
-        
-        // Add a system message about closing
-        setTimeout(() => {
-           onClose();
-        }, 3000);
+        setTimeout(() => { onClose(); }, 3000);
         
       } catch (e) {
         console.error("Failed to parse client JSON", e);
@@ -658,7 +628,7 @@ const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void
              <div className="flex gap-3">
                <input 
                  className="flex-1 bg-gray-100 hover:bg-gray-50 focus:bg-white border border-transparent focus:border-teal-500 rounded-xl px-4 py-3 outline-none transition-all text-sm text-gray-800"
-                 placeholder="Type 'ready' to begin or enter details (or 'skip' to auto-fill)..."
+                 placeholder="Type 'ready' to begin..."
                  value={input}
                  onChange={e => setInput(e.target.value)}
                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
@@ -680,30 +650,6 @@ const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void
     </div>
   );
 };
-
-
-interface OSWindowProps {
-  win: AppWindow;
-  isActive: boolean;
-  onActivate: (id: string) => void;
-  onClose: (id: string) => void;
-  onMinimize: (id: string) => void;
-  onOpenChat: () => void;
-  clients: Client[];
-  activities: ClientActivity[];
-  osActivities: OSActivity[];
-  tasks: Task[];
-  onAddClient: (client: Client) => void;
-  onUpdateClient: (client: Client) => void;
-  onOpenIntake: () => void;
-  onLogActivity: (activity: Omit<ClientActivity, 'id' | 'timestamp'>) => void;
-  resetViewTrigger: number;
-  onUpdateTask: (task: Task) => void;
-  onOpenTaskModal: () => void;
-  onAddTaskForDay: (date: string) => void;
-  notes: string;
-  onUpdateNotes: (n: string) => void;
-}
 
 const ActivityLogHub = ({ activities }: { activities: OSActivity[] }) => {
   return (
@@ -752,6 +698,92 @@ const ActivityLogHub = ({ activities }: { activities: OSActivity[] }) => {
   );
 };
 
+const PartnershipsHub = ({ partners, onAddPartner, onUpdatePartner, onDeletePartner }: { partners: Partner[], onAddPartner: (p: Partner) => void, onUpdatePartner: (p: Partner) => void, onDeletePartner: (id: string) => void }) => {
+  const [activeTab, setActiveTab] = useState<'Shelters' | 'County Agencies' | 'Housing Partners' | 'Legal Aid'>('Shelters');
+  const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+
+  const filteredPartners = partners.filter(p => p.category === activeTab);
+
+  const handleSave = (p: Partner) => {
+    if (isAdding) {
+      onAddPartner({ ...p, id: `partner-${Date.now()}`, category: activeTab });
+    } else {
+      onUpdatePartner(p);
+    }
+    setEditingPartner(null);
+    setIsAdding(false);
+  };
+
+  const PartnerForm = ({ initialData, onSave, onCancel }: { initialData?: Partial<Partner>, onSave: (p: Partner) => void, onCancel: () => void }) => {
+    const [form, setForm] = useState(initialData || {});
+    return (
+      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+        <h3 className="font-bold text-lg mb-2">{isAdding ? 'Add Partner' : 'Edit Partner'}</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div><label className="text-xs font-bold text-gray-500 uppercase">Name</label><input className="w-full border p-2 rounded text-sm" value={form.name || ''} onChange={e => setForm({...form, name: e.target.value})} autoFocus /></div>
+          <div><label className="text-xs font-bold text-gray-500 uppercase">Address</label><input className="w-full border p-2 rounded text-sm" value={form.address || ''} onChange={e => setForm({...form, address: e.target.value})} /></div>
+          <div><label className="text-xs font-bold text-gray-500 uppercase">Phone</label><input className="w-full border p-2 rounded text-sm" value={form.phone || ''} onChange={e => setForm({...form, phone: e.target.value})} /></div>
+          <div><label className="text-xs font-bold text-gray-500 uppercase">Website</label><input className="w-full border p-2 rounded text-sm" value={form.website || ''} onChange={e => setForm({...form, website: e.target.value})} /></div>
+          <div className="col-span-2"><label className="text-xs font-bold text-gray-500 uppercase">Notes</label><textarea className="w-full border p-2 rounded text-sm" value={form.notes || ''} onChange={e => setForm({...form, notes: e.target.value})} /></div>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onCancel} className="px-4 py-2 border rounded text-sm hover:bg-gray-50">Cancel</button>
+          <button onClick={() => onSave(form as Partner)} className="px-4 py-2 bg-rose-600 text-white rounded text-sm hover:bg-rose-700">Save</button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">Partnerships & Collaboration</h2>
+        <button onClick={() => { setIsAdding(true); setEditingPartner({} as Partner); }} className="bg-rose-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-rose-700 transition"><PlusCircle size={18} /> Add Partner</button>
+      </div>
+      
+      <div className="flex gap-2 overflow-x-auto pb-2 border-b border-gray-200">
+        {['Shelters', 'County Agencies', 'Housing Partners', 'Legal Aid'].map(tab => (
+          <button 
+            key={tab} 
+            onClick={() => { setActiveTab(tab as any); setEditingPartner(null); setIsAdding(false); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${activeTab === tab ? 'bg-rose-100 text-rose-800' : 'text-gray-600 hover:bg-gray-100'}`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {(isAdding || editingPartner) ? (
+        <PartnerForm 
+          initialData={editingPartner || {}} 
+          onSave={handleSave} 
+          onCancel={() => { setEditingPartner(null); setIsAdding(false); }} 
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filteredPartners.map(p => (
+            <div key={p.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition group relative">
+               <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition">
+                  <button onClick={() => setEditingPartner(p)} className="p-1 hover:bg-gray-100 rounded text-gray-500"><Pencil size={16}/></button>
+                  <button onClick={() => onDeletePartner(p.id)} className="p-1 hover:bg-red-50 rounded text-red-500"><Trash2 size={16}/></button>
+               </div>
+               <h3 className="font-bold text-gray-800 mb-2">{p.name}</h3>
+               <div className="space-y-1 text-sm text-gray-600">
+                  {p.address && <div className="flex items-center gap-2"><MapPin size={14} className="text-rose-400"/> {p.address}</div>}
+                  {p.phone && <div className="flex items-center gap-2"><Phone size={14} className="text-rose-400"/> {p.phone}</div>}
+                  {p.website && <div className="flex items-center gap-2"><Globe size={14} className="text-rose-400"/> {p.website}</div>}
+                  {p.notes && <div className="mt-3 pt-3 border-t border-gray-100 text-gray-500 italic">{p.notes}</div>}
+               </div>
+            </div>
+          ))}
+          {filteredPartners.length === 0 && <div className="col-span-2 text-center py-10 text-gray-400">No partners listed in this category.</div>}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ClientHub = ({ 
   clients, 
   activities, 
@@ -759,7 +791,8 @@ const ClientHub = ({
   onUpdateClient, 
   onOpenIntake, 
   onLogActivity,
-  resetViewTrigger
+  resetViewTrigger,
+  onAddNote
 }: {
   clients: Client[];
   activities: ClientActivity[];
@@ -768,16 +801,19 @@ const ClientHub = ({
   onOpenIntake: () => void;
   onLogActivity: (a: any) => void;
   resetViewTrigger: number;
+  onAddNote: (clientId: string) => void;
 }) => {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [view, setView] = useState<'list' | 'detail'>('list');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
 
-  // Reset view if triggered from outside (e.g. new client added)
   useEffect(() => {
     if (resetViewTrigger > 0) {
       setView('list');
       setSelectedClient(null);
+      setIsEditing(false);
     }
   }, [resetViewTrigger]);
 
@@ -786,19 +822,36 @@ const ClientHub = ({
     c.legalName?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const startEditing = () => {
+    setEditForm(JSON.parse(JSON.stringify(selectedClient!.fullProfile)));
+    setIsEditing(true);
+  };
+
+  const saveEdit = () => {
+    const updated = {
+      ...selectedClient!,
+      lastUpdated: new Date().toISOString(),
+      fullProfile: editForm
+    };
+    onUpdateClient(updated);
+    setSelectedClient(updated);
+    setIsEditing(false);
+    onLogActivity({ type: 'Edit', description: 'Updated client profile', clientName: updated.preferredName });
+  };
+
   if (view === 'detail' && selectedClient) {
     return (
-      <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+      <div className="animate-in fade-in slide-in-from-right-4 duration-300 h-full flex flex-col">
         <button 
-          onClick={() => { setView('list'); setSelectedClient(null); }}
-          className="mb-4 flex items-center gap-2 text-gray-500 hover:text-gray-800 transition"
+          onClick={() => { setView('list'); setSelectedClient(null); setIsEditing(false); }}
+          className="mb-4 flex items-center gap-2 text-gray-500 hover:text-gray-800 transition shrink-0"
         >
           <ArrowLeft size={18} /> Back to Client List
         </button>
         
         {/* Client Detail Content */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-             <div className="p-6 border-b border-gray-200 bg-teal-50 flex justify-between items-start">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
+             <div className="p-6 border-b border-gray-200 bg-teal-50 flex justify-between items-start shrink-0">
                 <div>
                    <h2 className="text-2xl font-bold text-gray-900">{selectedClient.preferredName}</h2>
                    <div className="flex gap-2 mt-2 text-sm text-gray-600">
@@ -808,54 +861,101 @@ const ClientHub = ({
                    </div>
                 </div>
                 <div className="flex gap-2">
-                   <button className="bg-white text-gray-700 px-3 py-1.5 rounded border border-gray-200 shadow-sm hover:bg-gray-50 text-sm font-medium">Edit Profile</button>
-                   <button className="bg-teal-600 text-white px-3 py-1.5 rounded shadow-sm hover:bg-teal-700 text-sm font-medium">Add Note</button>
+                   {isEditing ? (
+                     <>
+                        <button onClick={() => setIsEditing(false)} className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium">Cancel</button>
+                        <button onClick={saveEdit} className="px-3 py-1.5 bg-teal-600 text-white rounded-lg text-sm font-medium">Save Changes</button>
+                     </>
+                   ) : (
+                     <>
+                        <button onClick={startEditing} className="bg-white text-gray-700 px-3 py-1.5 rounded border border-gray-200 shadow-sm hover:bg-gray-50 text-sm font-medium">Edit Profile</button>
+                        <button onClick={() => onAddNote(selectedClient.id)} className="bg-teal-600 text-white px-3 py-1.5 rounded shadow-sm hover:bg-teal-700 text-sm font-medium">Add Note</button>
+                     </>
+                   )}
                 </div>
              </div>
              
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-0">
-                <div className="p-6 border-b md:border-b-0 md:border-r border-gray-200 col-span-1 space-y-4">
-                   <div>
-                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Contact Info</h3>
-                      <div className="space-y-2 text-sm">
-                         <div className="flex items-center gap-2 text-gray-700"><IconComponent name="Phone" className="w-4 h-4 text-gray-400"/> {selectedClient.fullProfile.phone}</div>
-                         <div className="flex items-center gap-2 text-gray-700"><IconComponent name="Mail" className="w-4 h-4 text-gray-400"/> {selectedClient.fullProfile.email}</div>
-                         <div className="flex items-start gap-2 text-gray-700"><IconComponent name="MapPin" className="w-4 h-4 text-gray-400 mt-0.5"/> {selectedClient.fullProfile.address}</div>
+             <div className="flex-1 overflow-y-auto p-6">
+                {isEditing ? (
+                   <div className="space-y-6">
+                      <div className="grid grid-cols-2 gap-4">
+                         <div><label className="text-xs font-bold text-gray-500">Legal Name</label><input className="w-full border p-2 rounded" value={selectedClient.legalName} disabled /></div>
+                         <div><label className="text-xs font-bold text-gray-500">DOB</label><input className="w-full border p-2 rounded" value={editForm.dob} onChange={e => setEditForm({...editForm, dob: e.target.value})} /></div>
+                         <div><label className="text-xs font-bold text-gray-500">Phone</label><input className="w-full border p-2 rounded" value={editForm.phone} onChange={e => setEditForm({...editForm, phone: e.target.value})} /></div>
+                         <div><label className="text-xs font-bold text-gray-500">Email</label><input className="w-full border p-2 rounded" value={editForm.email} onChange={e => setEditForm({...editForm, email: e.target.value})} /></div>
+                         <div className="col-span-2"><label className="text-xs font-bold text-gray-500">Address</label><input className="w-full border p-2 rounded" value={editForm.address} onChange={e => setEditForm({...editForm, address: e.target.value})} /></div>
+                         <div className="col-span-2"><label className="text-xs font-bold text-gray-500">Short Term Goals</label><textarea className="w-full border p-2 rounded" value={editForm.shortTermGoals} onChange={e => setEditForm({...editForm, shortTermGoals: e.target.value})} /></div>
+                         <div className="col-span-2"><label className="text-xs font-bold text-gray-500">Safety Plan</label><textarea className="w-full border p-2 rounded" value={editForm.safety?.safetyPlan} onChange={e => setEditForm({...editForm, safety: {...editForm.safety, safetyPlan: e.target.value}})} /></div>
                       </div>
                    </div>
-                   
-                   <div>
-                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Demographics</h3>
-                      <div className="space-y-1 text-sm text-gray-600">
-                         <p>DOB: {selectedClient.fullProfile.dob} (Age: {calculateAge(selectedClient.fullProfile.dob)})</p>
-                         <p>Pronouns: {selectedClient.fullProfile.pronouns}</p>
+                ) : (
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="space-y-6">
+                         <div>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Contact Info</h3>
+                            <div className="space-y-2 text-sm">
+                               <div className="flex items-center gap-2 text-gray-700"><IconComponent name="Phone" className="w-4 h-4 text-gray-400"/> {selectedClient.fullProfile.phone}</div>
+                               <div className="flex items-center gap-2 text-gray-700"><IconComponent name="Mail" className="w-4 h-4 text-gray-400"/> {selectedClient.fullProfile.email}</div>
+                               <div className="flex items-start gap-2 text-gray-700"><IconComponent name="MapPin" className="w-4 h-4 text-gray-400 mt-0.5"/> {selectedClient.fullProfile.address}</div>
+                            </div>
+                         </div>
+                         <div>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Demographics</h3>
+                            <div className="space-y-1 text-sm text-gray-600">
+                               <p>DOB: {selectedClient.fullProfile.dob} (Age: {calculateAge(selectedClient.fullProfile.dob)})</p>
+                               <p>Pronouns: {selectedClient.fullProfile.pronouns}</p>
+                            </div>
+                         </div>
+                         <div>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Household</h3>
+                            <div className="space-y-1 text-sm text-gray-600">
+                               {selectedClient.fullProfile.householdMembers?.map((m: any, i: number) => (
+                                  <div key={i}>{m.name} ({m.age}) - {m.relationship}</div>
+                               )) || "None listed"}
+                            </div>
+                         </div>
                       </div>
-                   </div>
-                </div>
-                
-                <div className="p-6 col-span-2 space-y-6">
-                   <div>
-                      <h3 className="text-lg font-semibold text-gray-800 mb-2">Current Goals</h3>
-                      <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-indigo-900 text-sm">
-                         {selectedClient.fullProfile.shortTermGoals || "No short term goals listed."}
-                      </div>
-                   </div>
+                      
+                      <div className="col-span-2 space-y-6">
+                         <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 text-indigo-900 text-sm">
+                            <h4 className="font-bold mb-1">Current Goals</h4>
+                            {selectedClient.fullProfile.shortTermGoals || "No short term goals listed."}
+                         </div>
 
-                   <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                         <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                            <IconComponent name="ShieldAlert" className="w-4 h-4 text-rose-500"/> Safety
-                         </h4>
-                         <p className="text-sm text-gray-600">{selectedClient.fullProfile.safety?.crisisConcerns || "No immediate concerns."}</p>
-                      </div>
-                      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                         <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                            <IconComponent name="Home" className="w-4 h-4 text-teal-500"/> Housing
-                         </h4>
-                         <p className="text-sm text-gray-600">{selectedClient.fullProfile.housingStatus}</p>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                               <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                  <IconComponent name="ShieldAlert" className="w-4 h-4 text-rose-500"/> Safety
+                               </h4>
+                               <p className="text-sm text-gray-600">{selectedClient.fullProfile.safety?.crisisConcerns || "No immediate concerns."}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                               <h4 className="font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                  <IconComponent name="Home" className="w-4 h-4 text-teal-500"/> Housing
+                               </h4>
+                               <p className="text-sm text-gray-600">{selectedClient.fullProfile.housingStatus}</p>
+                            </div>
+                         </div>
+
+                         <div>
+                            <h3 className="text-lg font-semibold text-gray-800 mb-2 border-b border-gray-200 pb-1">Notes & History</h3>
+                            <div className="space-y-3">
+                               {selectedClient.fullProfile.contactLog?.map((note: any, i: number) => (
+                                  <div key={i} className="bg-gray-50 p-3 rounded-lg border border-gray-100 text-sm">
+                                     <div className="flex justify-between items-center mb-1">
+                                        <span className="font-semibold text-gray-700">{new Date(note.date).toLocaleDateString()}</span>
+                                        <span className="text-xs text-gray-500 uppercase">{note.type}</span>
+                                     </div>
+                                     <p className="text-gray-600">{note.summary}</p>
+                                     {note.nextSteps && <p className="mt-1 text-teal-600 text-xs font-medium">Next: {note.nextSteps}</p>}
+                                  </div>
+                               ))}
+                               {!selectedClient.fullProfile.contactLog?.length && <div className="text-gray-400 italic text-sm">No notes recorded.</div>}
+                            </div>
+                         </div>
                       </div>
                    </div>
-                </div>
+                )}
              </div>
         </div>
       </div>
@@ -869,12 +969,15 @@ const ClientHub = ({
             <h2 className="text-2xl font-bold text-gray-900">Client Management</h2>
             <p className="text-gray-500">Active cases and profiles.</p>
           </div>
-          <button 
-            onClick={onOpenIntake}
-            className="bg-teal-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-teal-700 transition shadow-sm"
-          >
-             <User size={18} /> New Intake
-          </button>
+          <div className="flex gap-2">
+             <button className="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">Intake Forms</button>
+             <button 
+               onClick={onOpenIntake}
+               className="bg-teal-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-teal-700 transition shadow-sm"
+             >
+                <User size={18} /> New Intake
+             </button>
+          </div>
        </div>
 
        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -921,6 +1024,29 @@ const ClientHub = ({
   );
 };
 
+interface OSWindowProps {
+  win: AppWindow;
+  isActive: boolean;
+  onActivate: (id: string) => void;
+  onClose: (id: string) => void;
+  onMinimize: (id: string) => void;
+  onOpenChat: () => void;
+  clients: Client[];
+  activities: ClientActivity[];
+  osActivities: OSActivity[];
+  tasks: Task[];
+  onAddClient: (c: Client) => void;
+  onUpdateClient: (c: Client) => void;
+  onOpenIntake: () => void;
+  onLogActivity: (a: any) => void;
+  resetViewTrigger: number;
+  onUpdateTask: (task: Task) => void;
+  onOpenTaskModal: () => void;
+  onAddTaskForDay: (date: string) => void;
+  notes: string;
+  onUpdateNotes: (notes: string) => void;
+}
+
 const OSWindow: React.FC<OSWindowProps> = ({ 
   win, isActive, onActivate, onClose, onMinimize, onOpenChat, clients, activities, osActivities, tasks,
   onAddClient, onUpdateClient, onOpenIntake, onLogActivity, resetViewTrigger, onUpdateTask, onOpenTaskModal, onAddTaskForDay,
@@ -928,6 +1054,7 @@ const OSWindow: React.FC<OSWindowProps> = ({
 }) => {
   const hub = HUBS.find(h => h.id === win.hubId);
   const isActivityLog = win.hubId === 'activity-log';
+  const isPartnerships = win.hubId === 'partnerships';
   const isSpecialView = ['priorities', 'urgent', 'weekly'].includes(win.hubId);
   
   // Custom Window Logic
@@ -957,15 +1084,17 @@ const OSWindow: React.FC<OSWindowProps> = ({
      color = hub.color;
   }
 
+  // State lifting for this window's specific task editor
+  const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
+  const [partners, setPartners] = useState<Partner[]>(INITIAL_PARTNERS);
+
   // Dragging logic
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const windowRef = useRef<HTMLDivElement>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Only allow drag from header
     if ((e.target as HTMLElement).closest('.window-controls')) return;
-    
     setIsDragging(true);
     setDragOffset({
       x: e.clientX - win.position.x,
@@ -977,26 +1106,14 @@ const OSWindow: React.FC<OSWindowProps> = ({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      
       const newX = e.clientX - dragOffset.x;
       const newY = e.clientY - dragOffset.y;
-      
       if (windowRef.current) {
         windowRef.current.style.left = `${newX}px`;
         windowRef.current.style.top = `${newY}px`;
-        // We aren't updating React state continuously for performance, but we should eventually save it
-        // For this demo, direct DOM manip is smoother.
       }
     };
-
-    const handleMouseUp = (e: MouseEvent) => {
-      if (isDragging) {
-        setIsDragging(false);
-        // In a real app, we'd save the final position to state here
-        // win.position = { x: ... } via a callback
-      }
-    };
-
+    const handleMouseUp = () => { if (isDragging) setIsDragging(false); };
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
@@ -1007,7 +1124,6 @@ const OSWindow: React.FC<OSWindowProps> = ({
     };
   }, [isDragging, dragOffset]);
 
-  // Initial Position style
   const initialStyle = {
     left: win.position.x,
     top: win.position.y,
@@ -1015,147 +1131,213 @@ const OSWindow: React.FC<OSWindowProps> = ({
     display: win.isOpen && !win.isMinimized ? 'flex' : 'none'
   };
 
+  const handleEditTask = (task: Task) => setTaskToEdit(task);
+  const handleCloseTaskEditor = () => setTaskToEdit(null);
+
+  // Local Note Modal for Client Hub
+  const [noteClientId, setNoteClientId] = useState<string | null>(null);
 
   const renderContent = () => {
-    if (isActivityLog) {
-      return <ActivityLogHub activities={osActivities} />;
-    }
-    if (win.hubId === 'priorities') {
-       return <PrioritiesView tasks={tasks} onUpdateTask={onUpdateTask} onOpenTaskModal={onOpenTaskModal} />;
-    }
-    if (win.hubId === 'urgent') {
-       return <UrgentView tasks={tasks} clients={clients} onUpdateTask={onUpdateTask} />;
-    }
-    if (win.hubId === 'weekly') {
-       return <WeeklyView tasks={tasks} onAddTaskForDay={onAddTaskForDay} notes={notes} onUpdateNotes={onUpdateNotes} />;
-    }
+    if (isActivityLog) return <ActivityLogHub activities={osActivities} />;
+    if (win.hubId === 'priorities') return <PrioritiesView tasks={tasks} onUpdateTask={onUpdateTask} onEditTask={handleEditTask} onOpenTaskModal={onOpenTaskModal} />;
+    if (win.hubId === 'urgent') return <UrgentView tasks={tasks} clients={clients} onUpdateTask={onUpdateTask} onEditTask={handleEditTask} />;
+    if (win.hubId === 'weekly') return <WeeklyView tasks={tasks} onAddTaskForDay={onAddTaskForDay} notes={notes} onUpdateNotes={onUpdateNotes} onEditTask={handleEditTask} />;
+    if (isPartnerships) return <PartnershipsHub partners={partners} onAddPartner={(p) => setPartners([...partners, p])} onUpdatePartner={(p) => setPartners(partners.map(x => x.id === p.id ? p : x))} onDeletePartner={(id) => setPartners(partners.filter(x => x.id !== id))} />;
 
     if (!hub) return null;
 
     if (hub.id === 'clients') {
       return (
-        <ClientHub 
-          clients={clients} 
-          activities={activities} 
-          onAddClient={onAddClient} 
-          onUpdateClient={onUpdateClient}
-          onOpenIntake={onOpenIntake}
-          onLogActivity={onLogActivity}
-          resetViewTrigger={resetViewTrigger}
-        />
+        <>
+          <ClientHub 
+            clients={clients} 
+            activities={activities} 
+            onAddClient={onAddClient} 
+            onUpdateClient={onUpdateClient}
+            onOpenIntake={onOpenIntake}
+            onLogActivity={onLogActivity}
+            resetViewTrigger={resetViewTrigger}
+            onAddNote={(cid) => setNoteClientId(cid)}
+          />
+          {noteClientId && <QuickAddNoteModal onClose={() => setNoteClientId(null)} clients={clients} onSave={(n) => { /* logic in main desktop passed down or handled here */ }} preselectedClientId={noteClientId} />}
+        </>
       );
     }
 
-    // Default Generic Content
     return (
        <div className="max-w-3xl mx-auto">
           <div className="mb-8">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome to {hub.name}</h1>
             <p className="text-gray-500">{hub.description}</p>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <h3 className="font-semibold text-gray-800 mb-4">Recent Activity</h3>
-                <div className="space-y-4">
-                   {[1, 2, 3].map(i => (
-                     <div key={i} className="flex gap-3 items-start">
-                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 shrink-0">
-                          <User size={14} />
-                        </div>
-                        <div>
-                          <div className="h-2 w-32 bg-gray-200 rounded mb-1"></div>
-                          <div className="h-2 w-20 bg-gray-100 rounded"></div>
-                        </div>
-                     </div>
-                   ))}
-                </div>
-             </div>
-
-             <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center text-center">
-                <div className="w-12 h-12 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-4">
-                  <IconComponent name="Sparkles" className="w-6 h-6" />
-                </div>
-                <h3 className="font-semibold text-gray-800 mb-2">Need something else?</h3>
-                <p className="text-sm text-gray-500 mb-4">Ask the OS Assistant to generate reports, draft emails, or summarize data for this hub.</p>
-                <button 
-                  onClick={() => onOpenChat()}
-                  className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
-                >
-                  Open Assistant
-                </button>
-             </div>
-          </div>
+          {/* Generic placeholder content */}
        </div>
     );
   };
 
   return (
-    <div 
-      ref={windowRef}
-      className={`fixed w-[90vw] h-[80vh] max-w-5xl bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden transition-opacity duration-200 border border-gray-200
-        ${isActive ? 'opacity-100' : 'opacity-100'} 
-      `}
-      style={initialStyle}
-      onClick={() => onActivate(win.id)}
-    >
-      {/* Window Header */}
-      <div 
-        className={`h-10 ${color} flex items-center justify-between px-3 shrink-0 cursor-move`}
-        onMouseDown={handleMouseDown}
-      >
-         <div className="flex items-center gap-2 text-white font-medium text-sm pointer-events-none">
-            <IconComponent name={icon} className="w-4 h-4 opacity-80" />
-            {title}
-         </div>
-         <div className="flex items-center gap-2 window-controls">
-            <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={(e) => { e.stopPropagation(); onMinimize(win.id); }}>
-              <Minimize size={14} />
-            </button>
-            <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={() => {/* maximize logic */}}>
-              <Square size={12} />
-            </button>
-            <button className="p-1 hover:bg-red-500/80 rounded text-white/80 hover:text-white" onClick={(e) => { e.stopPropagation(); onClose(win.id); }}>
-              <X size={14} />
-            </button>
-         </div>
-      </div>
-
-      {/* Window Content */}
-      <div className="flex-1 overflow-auto bg-gray-50 flex">
-        {/* Sidebar - Hide for Activity Log and Special Views */}
-        {!isActivityLog && !isSpecialView && (
-          <div className="w-48 bg-white border-r border-gray-200 p-4 hidden md:block shrink-0">
-            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Pages</h4>
-            <ul className="space-y-1">
-              {hub?.pages.map(page => (
-                <li key={page} className="text-sm text-gray-600 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer transition">
-                  {page}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        
-        {/* Main Area */}
-        <div className="flex-1 p-8 bg-gray-50 overflow-y-auto">
-           {renderContent()}
+    <>
+      <div ref={windowRef} className={`fixed w-[90vw] h-[80vh] max-w-5xl bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden transition-opacity duration-200 border border-gray-200 ${isActive ? 'opacity-100' : 'opacity-100'}`} style={initialStyle} onClick={() => onActivate(win.id)}>
+        <div className={`h-10 ${color} flex items-center justify-between px-3 shrink-0 cursor-move`} onMouseDown={handleMouseDown}>
+           <div className="flex items-center gap-2 text-white font-medium text-sm pointer-events-none"><IconComponent name={icon} className="w-4 h-4 opacity-80" />{title}</div>
+           <div className="flex items-center gap-2 window-controls">
+              <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={(e) => { e.stopPropagation(); onMinimize(win.id); }}><Minimize size={14} /></button>
+              <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white"><Square size={12} /></button>
+              <button className="p-1 hover:bg-red-500/80 rounded text-white/80 hover:text-white" onClick={(e) => { e.stopPropagation(); onClose(win.id); }}><X size={14} /></button>
+           </div>
+        </div>
+        <div className="flex-1 overflow-auto bg-gray-50 flex">
+          {!isActivityLog && !isSpecialView && !isPartnerships && (
+            <div className="w-48 bg-white border-r border-gray-200 p-4 hidden md:block shrink-0">
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Pages</h4>
+              <ul className="space-y-1">{hub?.pages.map(page => <li key={page} className="text-sm text-gray-600 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer transition">{page}</li>)}</ul>
+            </div>
+          )}
+          <div className="flex-1 p-8 bg-gray-50 overflow-y-auto">{renderContent()}</div>
         </div>
       </div>
-    </div>
+      
+      {/* Specific Task Editor for this window context */}
+      {taskToEdit && (
+        <TaskModal 
+          initialData={taskToEdit} 
+          onClose={handleCloseTaskEditor} 
+          clients={clients} 
+          onSave={onUpdateTask}
+          onDelete={(id) => { /* Handle delete logic passed from parent */ }} 
+        />
+      )}
+    </>
   );
 };
+
+const TopBar = () => (
+  <div className="h-8 bg-white/80 backdrop-blur-md border-b border-gray-200/50 flex justify-between items-center px-4 fixed top-0 w-full z-40 select-none">
+    <div className="text-xs font-bold text-gray-700 flex items-center gap-2">
+      <div className="w-3 h-3 bg-indigo-600 rounded-full"></div>
+      Administrative OS
+    </div>
+    <div className="flex items-center gap-4">
+      <div className="flex gap-2">
+         <Wifi size={14} className="text-gray-500" />
+         <Battery size={14} className="text-gray-500" />
+      </div>
+      <Clock />
+    </div>
+  </div>
+);
+
+const WidgetArea = ({ notifications, onOpenUrgent }: { notifications: typeof MOCK_NOTIFICATIONS, onOpenUrgent: () => void }) => (
+  <div className="absolute top-12 right-6 w-80 space-y-4 z-0 pointer-events-none">
+     {notifications.map((n) => (
+       <div key={n.id} className="bg-white/90 backdrop-blur p-3 rounded-xl border border-gray-200/50 shadow-sm pointer-events-auto animate-in fade-in slide-in-from-right-8 cursor-pointer hover:bg-white transition" onClick={n.urgent ? onOpenUrgent : undefined}>
+          <div className="flex justify-between items-start mb-1">
+             <span className="font-semibold text-sm text-gray-800">{n.title}</span>
+             <span className="text-[10px] text-gray-400">{n.time}</span>
+          </div>
+          {n.urgent && <div className="inline-block px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] rounded font-bold uppercase">Action Required</div>}
+       </div>
+     ))}
+  </div>
+);
+
+const Launcher = ({ isOpen, onClose, onOpenApp }: { isOpen: boolean, onClose: () => void, onOpenApp: (hub: Hub) => void }) => {
+  if (!isOpen) return null;
+  return (
+    <>
+    <div className="fixed inset-0 z-40" onClick={onClose}></div>
+    <div className="absolute bottom-20 left-4 bg-gray-900/90 backdrop-blur-xl p-4 rounded-2xl w-[600px] shadow-2xl z-50 animate-in slide-in-from-bottom-10 fade-in duration-200 border border-white/10">
+       <div className="mb-4">
+          <input className="w-full bg-gray-800 text-white rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 ring-indigo-500 placeholder-gray-500" placeholder="Search apps, files, or actions..." autoFocus />
+       </div>
+       <div className="grid grid-cols-5 gap-4">
+          {HUBS.map(hub => (
+             <button key={hub.id} onClick={() => onOpenApp(hub)} className="flex flex-col items-center gap-2 p-2 rounded-xl hover:bg-white/10 transition group">
+                <div className={`w-12 h-12 ${hub.color} rounded-xl flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition`}>
+                   <IconComponent name={hub.icon} className="w-6 h-6" />
+                </div>
+                <span className="text-xs text-gray-300 font-medium text-center leading-tight">{hub.name}</span>
+             </button>
+          ))}
+       </div>
+    </div>
+    </>
+  );
+};
+
+const ChatOverlay = ({ isOpen, onClose, messages, input, setInput, onSend, isLoading }: { isOpen: boolean, onClose: () => void, messages: ChatMessage[], input: string, setInput: (s: string) => void, onSend: () => void, isLoading: boolean }) => {
+   const scrollRef = useRef<HTMLDivElement>(null);
+   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [messages, isOpen]);
+
+   if (!isOpen) return null;
+   return (
+      <div className="fixed right-6 bottom-20 w-96 h-[600px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden z-[60] animate-in slide-in-from-right-10 fade-in border border-gray-200">
+         <div className="bg-indigo-600 p-4 flex justify-between items-center text-white shrink-0">
+            <div className="flex items-center gap-2 font-semibold"><Sparkles className="w-5 h-5"/> Admin AI</div>
+            <button onClick={onClose}><X size={18} /></button>
+         </div>
+         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50" ref={scrollRef}>
+            {messages.map((m) => (
+               <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm'}`}>
+                     <div className="whitespace-pre-wrap">{m.text}</div>
+                  </div>
+               </div>
+            ))}
+            {isLoading && <div className="text-xs text-gray-400 p-2 italic flex items-center gap-1">
+               <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+               <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-75"></div>
+               <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-150"></div>
+            </div>}
+         </div>
+         <div className="p-3 bg-white border-t border-gray-200">
+            <div className="flex gap-2">
+               <input className="flex-1 bg-gray-100 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 ring-indigo-500 text-gray-800" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onSend()} placeholder="Ask me anything..." autoFocus />
+               <button onClick={onSend} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition"><Send size={18} /></button>
+            </div>
+         </div>
+      </div>
+   );
+};
+
+const Shelf = ({ windows, activeId, onRestore, onMinimize, onToggleLauncher, launcherOpen }: { windows: AppWindow[], activeId: string | null, onRestore: (id: string) => void, onMinimize: (id: string) => void, onToggleLauncher: () => void, launcherOpen: boolean }) => {
+   return (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 h-16 bg-white/80 backdrop-blur-xl border border-white/20 shadow-2xl rounded-2xl flex items-center px-4 gap-3 z-50">
+         <button onClick={onToggleLauncher} className={`p-3 rounded-xl transition ${launcherOpen ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-gray-100 text-gray-700'}`}>
+            <LayoutGrid size={24} />
+         </button>
+         <div className="w-[1px] h-8 bg-gray-300 mx-1"></div>
+         {windows.map((win) => {
+            const hub = HUBS.find(h => h.id === win.hubId);
+            const isActive = activeId === win.id && !win.isMinimized;
+            const appColor = hub ? hub.color : (['priorities', 'urgent', 'weekly'].includes(win.hubId) ? (win.hubId === 'priorities' ? 'bg-rose-600' : win.hubId === 'urgent' ? 'bg-amber-600' : 'bg-indigo-600') : 'bg-gray-500');
+            const appIcon = hub ? hub.icon : (win.hubId === 'activity-log' ? 'Activity' : 'AppWindow');
+            
+            return (
+               <div key={win.id} className="relative group">
+                  <button 
+                     onClick={() => isActive ? onMinimize(win.id) : onRestore(win.id)}
+                     className={`w-12 h-12 rounded-xl flex items-center justify-center text-white transition-all shadow-sm ${appColor} ${isActive ? 'scale-110 -translate-y-2 shadow-md ring-2 ring-offset-2 ring-indigo-300' : 'opacity-80 hover:opacity-100 hover:-translate-y-1'}`}
+                     title={win.title}
+                  >
+                     <IconComponent name={appIcon} className="w-6 h-6" />
+                  </button>
+                  {isActive && <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 bg-gray-800 rounded-full"></div>}
+               </div>
+            );
+         })}
+      </div>
+   );
+}
 
 // --- Main Desktop ---
 
 export default function Desktop() {
-  // State
   const [windows, setWindows] = useState<AppWindow[]>([]);
   const [activeWindowId, setActiveWindowId] = useState<string | null>(null);
   const [isLauncherOpen, setIsLauncherOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   
-  // Modals
   const [showClientIntake, setShowClientIntake] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -1163,68 +1345,26 @@ export default function Desktop() {
 
   const [resetViewTrigger, setResetViewTrigger] = useState(0); 
   
-  // Data
   const [clients, setClients] = useState<Client[]>([DEFAULT_CLIENT as unknown as Client]); 
   const [weeklyNotes, setWeeklyNotes] = useState("Focus on grant reporting and hiring plan.");
-  const [activities, setActivities] = useState<ClientActivity[]>([
-    {
-       id: 'act-1',
-       timestamp: new Date(Date.now() - 3600000), 
-       type: 'System',
-       description: 'System initialized',
-       clientName: 'Jordan'
-    }
-  ]);
-  const [osActivities, setOsActivities] = useState<OSActivity[]>([
-    {
-      id: 'os-1',
-      timestamp: new Date(Date.now() - 3600000),
-      type: 'System',
-      description: 'OS Booted Successfully',
-      target: 'System'
-    }
-  ]);
+  const [activities, setActivities] = useState<ClientActivity[]>([{ id: 'act-1', timestamp: new Date(Date.now() - 3600000), type: 'System', description: 'System initialized', clientName: 'Jordan' }]);
+  const [osActivities, setOsActivities] = useState<OSActivity[]>([{ id: 'os-1', timestamp: new Date(Date.now() - 3600000), type: 'System', description: 'OS Booted Successfully', target: 'System' }]);
   const [notes, setNotes] = useState<Note[]>([]);
-  // Fix mock data type mapping
   const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS);
-
-  // Chat State
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: '1', role: 'model', text: 'Welcome to AdminOS. How can I support you today?', timestamp: new Date() }
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([{ id: '1', role: 'model', text: 'Welcome to AdminOS. How can I support you today?', timestamp: new Date() }]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // --- Logic ---
-
   const logOSActivity = (type: string, description: string, target?: string) => {
-    const newAct: OSActivity = {
-      id: `os-${Date.now()}`,
-      timestamp: new Date(),
-      type,
-      description,
-      target
-    };
+    const newAct: OSActivity = { id: `os-${Date.now()}`, timestamp: new Date(), type, description, target };
     setOsActivities(prev => [newAct, ...prev]);
   };
 
   const handleAddClient = (client: Client) => {
     setClients(prev => [...prev, client]);
     const desc = 'New client intake completed';
-    
-    // Client Activity
-    const newActivity: ClientActivity = {
-      id: `act-${Date.now()}`,
-      timestamp: new Date(),
-      type: 'New Client',
-      description: desc,
-      clientName: client.preferredName
-    };
-    setActivities(prev => [newActivity, ...prev]);
-    
-    // OS Activity
+    setActivities(prev => [{ id: `act-${Date.now()}`, timestamp: new Date(), type: 'New Client', description: desc, clientName: client.preferredName }, ...prev]);
     logOSActivity('Intake', desc, client.preferredName);
-
     setResetViewTrigger(prev => prev + 1);
   };
 
@@ -1234,69 +1374,40 @@ export default function Desktop() {
   };
 
   const handleLogClientActivity = (activity: Omit<ClientActivity, 'id' | 'timestamp'>) => {
-    const newActivity: ClientActivity = {
-      id: `act-${Date.now()}`,
-      timestamp: new Date(),
-      ...activity
-    };
-    setActivities(prev => [newActivity, ...prev]);
-    // Also log OS-wide for important ones? Maybe not views to avoid clutter
-    if (activity.type !== 'View') {
-      logOSActivity(activity.type, activity.description, activity.clientName);
-    }
+    setActivities(prev => [{ id: `act-${Date.now()}`, timestamp: new Date(), ...activity }, ...prev]);
+    if (activity.type !== 'View') logOSActivity(activity.type, activity.description, activity.clientName);
   };
 
   const handleSaveNote = (note: Note) => {
     setNotes(prev => [note, ...prev]);
     const client = clients.find(c => c.id === note.linkedClient);
-    
     if (client) {
-      // Add to Client
-      const newContactLog = {
-        date: new Date().toISOString(),
-        type: 'Note',
-        summary: note.summary,
-        nextSteps: note.nextSteps
-      };
-      
-      const updatedClient = {
-        ...client,
-        lastUpdated: new Date().toISOString(),
-        fullProfile: {
-          ...client.fullProfile,
-          contactLog: [newContactLog, ...(client.fullProfile.contactLog || [])]
-        }
-      };
+      const newContactLog = { date: new Date().toISOString(), type: 'Note', summary: note.summary, nextSteps: note.nextSteps };
+      const updatedClient = { ...client, lastUpdated: new Date().toISOString(), fullProfile: { ...client.fullProfile, contactLog: [newContactLog, ...(client.fullProfile.contactLog || [])] } };
       handleUpdateClient(updatedClient);
-      handleLogClientActivity({
-        type: 'Note',
-        description: 'New note added',
-        clientName: client.preferredName
-      });
+      handleLogClientActivity({ type: 'Note', description: 'New note added', clientName: client.preferredName });
     } else {
-      // General Note
       logOSActivity('Note', 'New general note created', 'General');
     }
   };
 
   const handleSaveTask = (task: Task) => {
-    setTasks(prev => [task, ...prev]);
-    const client = clients.find(c => c.id === task.linkedClient);
-
-    if (client) {
-      handleLogClientActivity({
-        type: 'Task',
-        description: `Task created: ${task.title}`,
-        clientName: client.preferredName
-      });
+    // If task exists update it, else add new
+    if (tasks.find(t => t.id === task.id)) {
+        handleUpdateTask(task);
     } else {
-      logOSActivity('Task', 'Administrative task created', 'General');
+        setTasks(prev => [task, ...prev]);
+        const client = clients.find(c => c.id === task.linkedClient);
+        if (client) {
+          handleLogClientActivity({ type: 'Task', description: `Task created: ${task.title}`, clientName: client.preferredName });
+        } else {
+          logOSActivity('Task', 'Administrative task created', 'General');
+        }
     }
   };
 
   const handleUpdateTask = (updatedTask: Task) => {
     setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
-    // If only updated date/title, message is diff
     const isCompletionToggle = updatedTask.completed !== tasks.find(t => t.id === updatedTask.id)?.completed;
     if (isCompletionToggle) {
        const status = updatedTask.completed ? 'completed' : 'reopened';
@@ -1306,475 +1417,98 @@ export default function Desktop() {
     }
   };
 
+  const handleDeleteTask = (id: string) => {
+      setTasks(prev => prev.filter(t => t.id !== id));
+      logOSActivity('Task', 'Task deleted', 'Tasks');
+  };
+
   const handleOpenTaskModal = (props: {initialDate?: string, initialPriority?: 'High'|'Medium'|'Low'} = {}) => {
     setTaskModalProps(props);
     setShowTaskModal(true);
   };
 
-  // --- Window Management ---
-
   const openApp = (hub: Hub | {id: string, name: string}) => {
     const existing = windows.find(w => w.hubId === hub.id);
     if (existing) {
-      if (existing.isMinimized) {
-        setWindows(prev => prev.map(w => w.id === existing.id ? { ...w, isMinimized: false } : w));
-      }
+      if (existing.isMinimized) setWindows(prev => prev.map(w => w.id === existing.id ? { ...w, isMinimized: false } : w));
       setActiveWindowId(existing.id);
       setIsLauncherOpen(false);
       return;
     }
-
-    // Default Position (Center)
-    // We can randomize slightly to stack
     const count = windows.length;
     const startX = window.innerWidth / 2 - 400 + (count * 20);
     const startY = window.innerHeight / 2 - 300 + (count * 20);
-
-    const newWindow: AppWindow = {
-      id: Date.now().toString(),
-      hubId: hub.id,
-      title: hub.name,
-      isOpen: true,
-      isMinimized: false,
-      zIndex: windows.length + 1,
-      position: { x: startX, y: startY }
-    };
+    const newWindow: AppWindow = { id: Date.now().toString(), hubId: hub.id, title: hub.name, isOpen: true, isMinimized: false, zIndex: windows.length + 1, position: { x: startX, y: startY } };
     setWindows([...windows, newWindow]);
     setActiveWindowId(newWindow.id);
     setIsLauncherOpen(false);
   };
 
-  const closeWindow = (id: string) => {
-    setWindows(windows.filter(w => w.id !== id));
-    if (activeWindowId === id) setActiveWindowId(null);
-  };
-
-  const minimizeWindow = (id: string) => {
-    setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: true } : w));
-    setActiveWindowId(null); // Deselect
-  };
-
-  const restoreWindow = (id: string) => {
-    setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: false } : w));
-    setActiveWindowId(id);
-  };
-
+  const closeWindow = (id: string) => { setWindows(windows.filter(w => w.id !== id)); if (activeWindowId === id) setActiveWindowId(null); };
+  const minimizeWindow = (id: string) => { setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: true } : w)); setActiveWindowId(null); };
+  const restoreWindow = (id: string) => { setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: false } : w)); setActiveWindowId(id); };
   const toggleLauncher = () => setIsLauncherOpen(!isLauncherOpen);
 
-  const openActivityLog = () => {
-    openApp({ id: 'activity-log', name: 'Recent Activity Log' });
-  };
-
-  const openPriorities = () => {
-    openApp({ id: 'priorities', name: 'Top Priorities' });
-  };
-
-  const openUrgent = () => {
-    openApp({ id: 'urgent', name: 'Urgent Follow Ups' });
-  };
-
-  const openWeekly = () => {
-    openApp({ id: 'weekly', name: 'Weekly Overview' });
-  };
-
-  // --- AI Chat Logic ---
+  const openActivityLog = () => openApp({ id: 'activity-log', name: 'Recent Activity Log' });
+  const openPriorities = () => openApp({ id: 'priorities', name: 'Top Priorities' });
+  const openUrgent = () => openApp({ id: 'urgent', name: 'Urgent Follow Ups' });
+  const openWeekly = () => openApp({ id: 'weekly', name: 'Weekly Overview' });
 
   const handleSendMessage = async () => {
     if (!input.trim()) return;
-
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      text: input,
-      timestamp: new Date()
-    };
-
+    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: input, timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
-
     let context = "";
     if (activeWindowId) {
       const activeWin = windows.find(w => w.id === activeWindowId);
       const activeHub = HUBS.find(h => h.id === activeWin?.hubId);
-      if (activeHub) {
-        context = `User is currently looking at the "${activeHub.name}" Hub. Description: ${activeHub.description}. Pages available: ${activeHub.pages.join(', ')}.`;
-      }
+      if (activeHub) context = `User is currently looking at the "${activeHub.name}" Hub. Description: ${activeHub.description}. Pages available: ${activeHub.pages.join(', ')}.`;
     }
-
     const responseText = await generateOSResponse(userMsg.text, context);
-
-    const modelMsg: ChatMessage = {
-      id: (Date.now() + 1).toString(),
-      role: 'model',
-      text: responseText,
-      timestamp: new Date()
-    };
-
+    const modelMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: new Date() };
     setMessages(prev => [...prev, modelMsg]);
     setIsLoading(false);
   };
 
-  // --- UI Sections ---
-
-  const TopBar = () => (
-    <div className="h-10 bg-white/80 backdrop-blur-md border-b border-white/40 flex items-center justify-between px-4 fixed top-0 w-full z-50 shadow-sm">
-      <div className="flex items-center gap-4">
-         <span className="font-semibold text-gray-700 tracking-tight">AdminOS</span>
-         <div className="hidden md:flex items-center bg-gray-100/50 rounded-full px-3 py-1 border border-gray-200/50 w-64">
-            <Search size={14} className="text-gray-400 mr-2" />
-            <input 
-              type="text" 
-              placeholder="Search files, clients, commands..." 
-              className="bg-transparent border-none outline-none text-xs w-full text-gray-600 placeholder-gray-400"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  setChatOpen(true);
-                  setInput(e.currentTarget.value);
-                  e.currentTarget.value = '';
-                }
-              }}
-            />
-         </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <Clock />
-        <div className="flex items-center gap-2 text-gray-600">
-          <div className="p-1.5 hover:bg-gray-200/50 rounded-full cursor-pointer transition">
-            <Bell size={16} />
-          </div>
-          <div className="p-1.5 hover:bg-gray-200/50 rounded-full cursor-pointer transition">
-            <Wifi size={16} />
-          </div>
-          <div className="p-1.5 hover:bg-gray-200/50 rounded-full cursor-pointer transition">
-            <Battery size={16} />
-          </div>
-          <div className="w-7 h-7 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold text-xs ml-2 border border-indigo-200">
-            F
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const Shelf = () => (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-white/70 backdrop-blur-xl border border-white/40 rounded-2xl px-3 py-2 flex items-center gap-2 shadow-2xl z-50 hover:bg-white/80 transition-all duration-300">
-      <button 
-        onClick={toggleLauncher}
-        className="p-2.5 rounded-xl bg-gray-800/5 hover:bg-indigo-100 text-gray-700 hover:text-indigo-600 transition-all duration-200 group relative"
-      >
-        <LayoutGrid size={22} />
-        <span className="absolute -top-10 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap">
-          Launcher
-        </span>
-      </button>
-
-      <div className="w-px h-8 bg-gray-300/50 mx-1"></div>
-
-      {HUBS.slice(0, 6).map(hub => (
-        <button
-          key={hub.id}
-          onClick={() => openApp(hub)}
-          className={`p-2.5 rounded-xl transition-all duration-200 group relative
-            ${windows.some(w => w.hubId === hub.id && !w.isMinimized) ? 'bg-white shadow-sm ring-1 ring-black/5' : 'hover:bg-white/50 hover:shadow-sm'}
-            ${windows.some(w => w.hubId === hub.id && w.isMinimized) ? 'opacity-75' : ''}
-          `}
-        >
-          <div className={`${hub.color} w-6 h-6 rounded-md flex items-center justify-center text-white shadow-sm`}>
-            <IconComponent name={hub.icon} className="w-4 h-4" />
-          </div>
-          <span className="absolute -top-10 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition whitespace-nowrap pointer-events-none">
-            {hub.name}
-          </span>
-          {windows.some(w => w.hubId === hub.id) && (
-            <div className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${windows.find(w => w.hubId === hub.id)?.isMinimized ? 'bg-gray-400' : 'bg-gray-600'}`}></div>
-          )}
-        </button>
-      ))}
-
-      <div className="w-px h-8 bg-gray-300/50 mx-1"></div>
-
-       <button
-          onClick={() => setChatOpen(!chatOpen)}
-          className={`p-2.5 rounded-xl transition-all duration-200 relative
-            ${chatOpen ? 'bg-indigo-100 text-indigo-600' : 'hover:bg-indigo-50 text-gray-600'}
-          `}
-        >
-          <IconComponent name="MessageSquareSparkle" className="w-6 h-6" />
-          {chatOpen && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-indigo-600"></div>}
-       </button>
-    </div>
-  );
-
-  const WidgetArea = () => (
-    <div className="absolute top-16 left-8 right-8 bottom-24 grid grid-cols-12 gap-6 pointer-events-none">
-      {/* Left Column */}
-      <div className="col-span-12 md:col-span-3 flex flex-col gap-4 pointer-events-auto">
-        {/* Today's Control Panel */}
-        <div 
-          className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50"
-        >
-          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
-            <Activity size={16} className="mr-2 text-indigo-500"/> Control Panel
-          </h3>
-          
-          <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-             <button onClick={openPriorities} className="bg-rose-100 text-rose-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-rose-200 transition">Priorities</button>
-             <button onClick={openUrgent} className="bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-amber-200 transition">Urgent</button>
-             <button onClick={openWeekly} className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-indigo-200 transition">Weekly</button>
-          </div>
-
-          <div 
-             onClick={openActivityLog}
-             className="cursor-pointer hover:bg-white/70 transition rounded-xl"
-          >
-             <div className="space-y-2">
-                {osActivities.slice(0, 3).map(act => (
-                   <div key={act.id} className="flex justify-between items-center text-xs border-b border-gray-400/10 pb-1 last:border-0">
-                      <span className="font-medium text-gray-700 truncate w-24">{act.target || act.type}</span>
-                      <span className="text-gray-500">{act.description.substring(0, 20)}...</span>
-                   </div>
-                ))}
-             </div>
-             <div className="mt-2 text-[10px] text-indigo-600 font-semibold text-right">View Full Log &rarr;</div>
-          </div>
-        </div>
-
-        {/* Quick Add */}
-        <div className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3">Quick Add</h3>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => setShowNoteModal(true)}
-              className="flex-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 py-2 rounded-lg text-xs font-medium transition"
-            >
-              Note
-            </button>
-            <button 
-              onClick={() => setShowClientIntake(true)}
-              className="flex-1 bg-teal-100 hover:bg-teal-200 text-teal-700 py-2 rounded-lg text-xs font-medium transition"
-            >
-              Client
-            </button>
-            <button 
-              onClick={() => handleOpenTaskModal()}
-              className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 py-2 rounded-lg text-xs font-medium transition"
-            >
-              Task
-            </button>
-          </div>
-        </div>
-
-        {/* Minimized Apps Widget */}
-        {windows.some(w => w.isMinimized) && (
-          <div className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50">
-             <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
-                <Minimize size={16} className="mr-2 text-gray-500"/> Minimized Apps
-             </h3>
-             <div className="flex flex-wrap gap-2">
-                {windows.filter(w => w.isMinimized).map(w => {
-                  const hub = HUBS.find(h => h.id === w.hubId);
-                  const isActivityLog = w.hubId === 'activity-log';
-                  const isSpecial = ['priorities', 'urgent', 'weekly'].includes(w.hubId);
-                  
-                  let color = 'bg-gray-500';
-                  let icon = 'Square';
-                  
-                  if (isActivityLog) { color = 'bg-gray-700'; icon = 'Activity'; }
-                  else if (w.hubId === 'priorities') { color = 'bg-rose-600'; icon = 'AlertCircle'; }
-                  else if (w.hubId === 'urgent') { color = 'bg-amber-600'; icon = 'Clock'; }
-                  else if (w.hubId === 'weekly') { color = 'bg-indigo-600'; icon = 'CalendarDays'; }
-                  else if (hub) { color = hub.color; icon = hub.icon; }
-
-                  return (
-                    <button 
-                      key={w.id} 
-                      onClick={() => restoreWindow(w.id)}
-                      className={`${color} text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium shadow-sm hover:opacity-90 transition`}
-                    >
-                      <IconComponent name={icon} className="w-3 h-3" />
-                      <span className="truncate max-w-[80px]">{w.title}</span>
-                      <RotateCcw size={10} className="ml-1 opacity-50" />
-                    </button>
-                  );
-                })}
-             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Middle Workspace - Mostly Empty for Windows */}
-      <div className="hidden md:block col-span-6"></div>
-
-      {/* Right Column */}
-      <div className="col-span-12 md:col-span-3 flex flex-col gap-4 pointer-events-auto">
-        {/* Notifications */}
-        <div className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center justify-between">
-            <span>Notifications</span>
-            <span className="bg-red-500 text-white text-[10px] px-1.5 rounded-full">3</span>
-          </h3>
-          <div className="space-y-2">
-            {MOCK_NOTIFICATIONS.map(n => (
-              <div key={n.id} className="p-3 bg-white/50 rounded-lg border-l-2 border-indigo-400">
-                <p className="text-xs font-medium text-gray-800">{n.title}</p>
-                <p className="text-[10px] text-gray-500">{n.time}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-         {/* Calendar Widget */}
-         <div className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50">
-          <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
-             <CalendarIcon size={16} className="mr-2 text-indigo-500"/> Schedule
-          </h3>
-          <div className="space-y-2">
-            <div className="flex items-start gap-3">
-              <div className="text-center bg-gray-100 rounded p-1 min-w-[36px]">
-                <div className="text-[10px] text-gray-500 uppercase">Today</div>
-                <div className="text-sm font-bold text-gray-800">12</div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-700">Team Check-in</p>
-                <p className="text-[10px] text-gray-500">2:00 PM • Zoom</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
-    <div className="h-screen w-screen overflow-hidden bg-gradient-to-br from-indigo-100 via-white to-rose-50 relative selection:bg-indigo-100 selection:text-indigo-900">
-      {/* Background Subtle Elements */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none opacity-40">
-         <div className="absolute top-[10%] left-[10%] w-[500px] h-[500px] bg-indigo-200/50 rounded-full blur-[100px] animate-pulse" style={{animationDuration: '10s'}}></div>
-         <div className="absolute bottom-[20%] right-[10%] w-[400px] h-[400px] bg-rose-200/50 rounded-full blur-[80px] animate-pulse" style={{animationDuration: '15s', animationDelay: '2s'}}></div>
-      </div>
-
+    <div className="w-full h-screen bg-cover bg-center overflow-hidden relative" style={{ backgroundImage: `linear-gradient(135deg, #e0e7ff 0%, #f3e8ff 100%)` }}>
       <TopBar />
+      <WidgetArea notifications={MOCK_NOTIFICATIONS} onOpenUrgent={openUrgent} />
+      {windows.map(win => (
+        <OSWindow 
+          key={win.id} 
+          win={win} 
+          isActive={activeWindowId === win.id}
+          onActivate={(id) => setActiveWindowId(id)}
+          onClose={closeWindow}
+          onMinimize={minimizeWindow}
+          onOpenChat={() => setChatOpen(true)}
+          clients={clients}
+          activities={activities}
+          osActivities={osActivities}
+          tasks={tasks}
+          onAddClient={handleAddClient}
+          onUpdateClient={handleUpdateClient}
+          onOpenIntake={() => setShowClientIntake(true)}
+          onLogActivity={handleLogClientActivity}
+          resetViewTrigger={resetViewTrigger}
+          onUpdateTask={handleSaveTask} 
+          onOpenTaskModal={() => handleOpenTaskModal({initialPriority: 'High'})}
+          onAddTaskForDay={(date) => handleOpenTaskModal({initialDate: date})}
+          notes={weeklyNotes}
+          onUpdateNotes={setWeeklyNotes}
+        />
+      ))}
       
-      {/* Desktop Area */}
-      <div className="absolute inset-0 pt-10 pb-20 z-0">
-        <WidgetArea />
-
-        {/* Windows Layer */}
-        {windows.map(win => (
-          <OSWindow 
-            key={win.id} 
-            win={win} 
-            isActive={activeWindowId === win.id}
-            onActivate={(id) => setActiveWindowId(id)}
-            onClose={closeWindow}
-            onMinimize={minimizeWindow}
-            onOpenChat={() => setChatOpen(true)}
-            clients={clients}
-            activities={activities}
-            osActivities={osActivities}
-            tasks={tasks}
-            onAddClient={handleAddClient}
-            onUpdateClient={handleUpdateClient}
-            onOpenIntake={() => setShowClientIntake(true)}
-            onLogActivity={handleLogClientActivity}
-            resetViewTrigger={resetViewTrigger}
-            onUpdateTask={handleUpdateTask}
-            onOpenTaskModal={handleOpenTaskModal}
-            onAddTaskForDay={(date) => handleOpenTaskModal({initialDate: date})}
-            notes={weeklyNotes}
-            onUpdateNotes={setWeeklyNotes}
-          />
-        ))}
-      </div>
-
-      <Shelf />
-
-      {/* Overlays */}
       {showClientIntake && <QuickAddClientModal onClose={() => setShowClientIntake(false)} onClientCreated={handleAddClient} />}
       {showNoteModal && <QuickAddNoteModal onClose={() => setShowNoteModal(false)} clients={clients} onSave={handleSaveNote} />}
-      {showTaskModal && <QuickAddTaskModal onClose={() => setShowTaskModal(false)} clients={clients} onSave={handleSaveTask} {...taskModalProps} />}
+      {showTaskModal && <TaskModal onClose={() => setShowTaskModal(false)} clients={clients} onSave={handleSaveTask} onDelete={handleDeleteTask} initialData={taskModalProps.initialDate ? {dueDate: taskModalProps.initialDate} : {priority: taskModalProps.initialPriority}} />}
 
-      {/* Chat Overlay */}
-      {chatOpen && (
-         <div className="fixed bottom-24 right-1/2 translate-x-1/2 md:translate-x-0 md:right-8 z-50 w-[90vw] md:w-[400px] h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-in slide-in-from-bottom-10 fade-in zoom-in-95 duration-200">
-            <div className="bg-indigo-600 p-4 flex justify-between items-center text-white shrink-0">
-               <div className="flex items-center gap-2 font-semibold">
-                  <IconComponent name="MessageSquareSparkle" className="w-5 h-5"/> OS Assistant
-               </div>
-               <button onClick={() => setChatOpen(false)} className="hover:text-indigo-200 transition"><X size={18}/></button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-               {messages.map(msg => (
-                  <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                     <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm shadow-sm
-                        ${msg.role === 'user' 
-                          ? 'bg-indigo-600 text-white rounded-br-none' 
-                          : 'bg-white text-gray-700 border border-gray-200 rounded-bl-none'}
-                     `}>
-                        {msg.text}
-                     </div>
-                  </div>
-               ))}
-               {isLoading && (
-                  <div className="flex justify-start">
-                     <div className="bg-white px-4 py-3 rounded-2xl rounded-bl-none shadow-sm border border-gray-200">
-                        <div className="flex gap-1">
-                           <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
-                           <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-75"></div>
-                           <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-150"></div>
-                        </div>
-                     </div>
-                  </div>
-               )}
-            </div>
-
-            <div className="p-3 bg-white border-t border-gray-200">
-               <div className="relative">
-                  <input 
-                     className="w-full bg-gray-100 rounded-full pl-4 pr-10 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition"
-                     placeholder="Ask me anything..."
-                     value={input}
-                     onChange={e => setInput(e.target.value)}
-                     onKeyDown={e => e.key === 'Enter' && handleSendMessage()}
-                  />
-                  <button 
-                     onClick={handleSendMessage}
-                     className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition shadow-sm"
-                  >
-                     <Send size={14} />
-                  </button>
-               </div>
-            </div>
-         </div>
-      )}
-
-      {/* Launcher Overlay */}
-      {isLauncherOpen && (
-         <div 
-           className="fixed inset-0 z-40 flex items-center justify-center bg-gray-900/20 backdrop-blur-sm animate-in fade-in"
-           onClick={() => setIsLauncherOpen(false)}
-         >
-            <div 
-              className="bg-white/90 backdrop-blur-xl p-8 rounded-3xl shadow-2xl grid grid-cols-4 gap-6 max-w-3xl w-full mx-4 border border-white/50"
-              onClick={e => e.stopPropagation()}
-            >
-               {HUBS.map(hub => (
-                  <button 
-                     key={hub.id}
-                     onClick={() => openApp(hub)}
-                     className="flex flex-col items-center gap-3 p-4 rounded-xl hover:bg-white/50 transition group"
-                  >
-                     <div className={`${hub.color} w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:scale-105 transition duration-200`}>
-                        <IconComponent name={hub.icon} className="w-8 h-8" />
-                     </div>
-                     <span className="font-medium text-gray-700 text-sm">{hub.name}</span>
-                  </button>
-               ))}
-            </div>
-         </div>
-      )}
+      <Launcher isOpen={isLauncherOpen} onClose={() => setIsLauncherOpen(false)} onOpenApp={openApp} />
+      <ChatOverlay isOpen={chatOpen} onClose={() => setChatOpen(false)} messages={messages} input={input} setInput={setInput} onSend={handleSendMessage} isLoading={isLoading} />
+      <Shelf windows={windows} activeId={activeWindowId} onRestore={restoreWindow} onMinimize={minimizeWindow} onToggleLauncher={toggleLauncher} launcherOpen={isLauncherOpen} />
     </div>
   );
 }

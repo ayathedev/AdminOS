@@ -1,5 +1,5 @@
 
-import { Hub, Task, Client } from './types';
+import { Hub, Task, Client, Partner } from './types';
 
 export const SYSTEM_PROMPT = `
 ## ROLE
@@ -37,27 +37,20 @@ intake process used to create a complete client profile for A Place To Go CLE.
 The wizard should feel supportive, simple, and trauma-informed. The final output
 must be clean, readable, and contain no markup or code formatting.
 
-## SKIP COMMAND BEHAVIOR
+## SKIP COMMAND BEHAVIOR - RANDOMIZED GENERATION
 At any point, if the user types "skip":
 1. Immediately stop asking questions.
-2. Auto-fill all remaining fields with these exact placeholder values:
-   - Preferred/Legal Name: "Test Client"
-   - Pronouns: "they/them"
-   - DOB: "1990-01-01"
-   - Phone: "000-000-0000"
-   - Email: "test@example.com"
-   - Address: "Testing Mode"
-   - Housing Status: "Testing Mode"
-   - Referral Source: "Testing"
-   - Program Type: "Testing Mode"
-   - Household: None
-   - Needs: Randomly select 2-3 as true, notes "Testing placeholder data"
-   - Strengths: "Client demonstrates motivation."
-   - Goals: "Testing short-term goals", "Testing long-term goals"
-   - Support: "Testing service", "Testing referral"
-   - Safety: "None", "Not applicable", "Testing Contact"
-   - Documentation: Randomly mark some as completed.
-3. IMMEDIATELY output the approval request and the JSON block as described in "Approval Workflow". Do not ask for approval separately if you can output the JSON immediately.
+2. GENERATE A FULLY RANDOMIZED CLIENT PROFILE. Do NOT use static placeholders like "Test Client".
+   - **Preferred Name**: Generate a realistic first name (e.g., "Alex", "Jordan", "Sam", "Casey", "Riley").
+   - **Legal Name**: Generate a realistic full name.
+   - **Demographics**: Random valid DOB (ages 18-60), realistic phone/email.
+   - **Needs**: Randomly select 3-5 distinct needs (Housing, Mental Health, Income, etc.) as TRUE.
+   - **Strengths**: Generate 2-3 specific, unique strengths (e.g., "Artistic", "Strong advocate for self", "Community connected").
+   - **Goals**: Generate 2 specific short-term and 1 long-term goal related to the needs.
+   - **Support**: List 1-2 realistic services or referrals.
+   - **Safety**: Generate a realistic safety note (e.g., "Currently safe, staying with friend" or "Fleeing DV, needs shelter").
+   - **Household**: Randomly decide if they have household members (0-3 members).
+3. IMMEDIATELY output the approval request and the JSON block.
 
 ## INTRODUCTION BEHAVIOR
 - Begin with a brief, calm introduction such as:
@@ -74,81 +67,6 @@ At any point, if the user types "skip":
 - Maintain a supportive, neutral tone.
 - After each answer, move to the next question automatically unless the user
   asks to pause or go back.
-
-## INTAKE SECTIONS & QUESTIONS
-Ask the following sections in order:
-
-### 1. CLIENT PROFILE
-- Client Preferred Name:
-- Client Legal Name:
-- Pronouns:
-- Date of Birth:
-- Phone:
-- Email:
-- Address / Housing Status:
-
-### 2. PROGRAM DETAILS
-- Referral Source:
-- Date Entered Program:
-- Case Manager: (default to Aya Kalimah Satya Ruane)
-- Program Type: (Family Support / Housing Stabilization)
-
-### 3. HOUSEHOLD INFORMATION
-- Ask: “Does the client have household members to list?”
-  If yes, collect:
-  - Name / Age / Relationship (repeat as needed)
-- Custody / Visitation Notes (if relevant):
-
-### 4. PRIMARY NEEDS & BARRIERS
-Ask each area as a yes/no or open-ended question:
-- Housing:
-- Income / Employment:
-- Benefits:
-- Mental Health:
-- Physical Health:
-- Transportation:
-- Documentation:
-- Safety Concerns:
-- Other:
-- Notes:
-
-### 5. STRENGTHS & RESILIENCE FACTORS
-- Ask for strengths, supports, or resilience factors in the client’s life.
-
-### 6. GOALS
-- Short-Term Goals (30–60 days):
-- Long-Term Goals (90+ days):
-
-### 7. SUPPORT PLAN
-- Current Services / Providers:
-- Referrals Made:
-- Life-Skills Coaching Areas:
-
-### 8. CONTACT LOG (INITIAL)
-- Last Contact Date:
-- Type of Contact (Phone / Text / In-Person / Email):
-- Summary:
-
-### 9. MONTHLY REVIEW SNAPSHOT (INITIAL)
-- Progress Toward Goals:
-- New Barriers Identified:
-- Strengths Observed:
-- Next Steps:
-
-### 10. SAFETY & WELLNESS
-- Crisis Concerns:
-- Safety Plan (if applicable):
-- Emergency Contacts:
-
-### 11. DOCUMENTATION CHECKLIST
-Ask each as yes/no:
-- Intake Completed
-- Release of Information
-- ID / SSN / Birth Certificates
-- Housing Documents
-- Income Verification
-- Case Notes Updated
-- Monthly Review Completed
 
 ## OUTPUT REQUIREMENTS
 When all questions are complete:
@@ -200,12 +118,6 @@ After presenting the completed form (or if Skipped):
   - Allow the user to select a section to edit.
   - Re-ask only the questions in that section.
   - Re-present the updated form for approval.
-
-## INTERACTION RULES
-- Always file clients under their Preferred Name.
-- Never overwrite information unless the user explicitly edits it.
-- Maintain a calm, supportive, professional tone throughout.
-- Keep all outputs clean and easy to read.
 `;
 
 export const HUBS: Hub[] = [
@@ -390,4 +302,19 @@ export const MOCK_TASKS: Task[] = [
     updatedAt: new Date().toISOString(),
     dueDate: new Date().toISOString().split('T')[0]
   },
+];
+
+export const INITIAL_PARTNERS: Partner[] = [
+  { id: '1', category: 'Shelters', name: 'Family Promise of Greater Cleveland', address: '3470 E 152nd St, Cleveland', notes: 'Serves families with children.' },
+  { id: '2', category: 'Shelters', name: 'The City Mission', address: '5310 Carnegie Ave, Cleveland', notes: 'Men’s and women’s crisis centers.' },
+  { id: '3', category: 'Shelters', name: 'Domestic Violence Center Shelter', notes: 'Confidential location.' },
+  { id: '4', category: 'Shelters', name: 'LMM Men’s Shelter', address: '2100 Lakeside Ave, Cleveland' },
+  { id: '5', category: 'County Agencies', name: 'Cuyahoga County Job & Family Services', address: '1641 Payne Ave', notes: 'Benefits application.' },
+  { id: '6', category: 'County Agencies', name: 'Step Forward', address: '1801 Superior Ave', notes: 'Anti-poverty agency, HEAP application.' },
+  { id: '7', category: 'County Agencies', name: 'Fiscal Officer’s Office', notes: 'Property tax/ownership records.' },
+  { id: '8', category: 'Housing Partners', name: 'CHN Housing Partners', website: 'chnhousingpartners.org' },
+  { id: '9', category: 'Housing Partners', name: 'CMHA', website: 'cmha.net' },
+  { id: '10', category: 'Housing Partners', name: 'EDEN Housing', notes: 'Specialized housing for disabilities.' },
+  { id: '11', category: 'Legal Aid', name: 'Legal Aid Society of Cleveland', address: '1223 W 6th St', phone: '216-687-1900' },
+  { id: '12', category: 'Legal Aid', name: 'CMBA Pro Bono Programs', website: 'clemetrobar.org' }
 ];

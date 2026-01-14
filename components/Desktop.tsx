@@ -604,10 +604,15 @@ const IntakeWizardContent = ({ onClose, onApprove }: any) => {
 
    if (isComplete) {
       return (
-         <div className="flex flex-col h-full bg-white p-8 items-center justify-center text-center">
+         <div className="flex flex-col h-full bg-white p-8 items-center justify-center text-center overflow-y-auto">
             <CheckCircle2 size={64} className="text-teal-500 mb-4" />
             <h2 className="text-2xl font-bold mb-2">Intake Complete</h2>
-            <p className="text-gray-600 mb-8 max-w-md">The intake session is finished. Review the summary below or approve to create the client.</p>
+            <div className="bg-gray-50 p-4 rounded-xl text-left w-full max-w-md mb-6 border text-sm">
+                <p><strong className="text-gray-600">Preferred Name:</strong> {clientData.preferredName}</p>
+                <p><strong className="text-gray-600">Legal Name:</strong> {clientData.legalName}</p>
+                <p><strong className="text-gray-600">Housing:</strong> {(clientData.fullProfile as any)?.housingStatus}</p>
+                <p><strong className="text-gray-600">Needs:</strong> {(clientData.fullProfile as any)?.primaryNeeds?.notes}</p>
+            </div>
             <div className="flex gap-4">
                <button onClick={onClose} className="px-6 py-3 rounded-xl border border-gray-300 font-medium hover:bg-gray-50">Cancel</button>
                <button onClick={() => onClose()} className="px-6 py-3 rounded-xl border border-teal-600 text-teal-600 font-medium hover:bg-teal-50">Edit Form</button>
@@ -643,7 +648,7 @@ const IntakeWizardContent = ({ onClose, onApprove }: any) => {
    );
 };
 
-const OSWindow = ({ win, dispatch, isActive, state }: { win: AppWindow, dispatch: React.Dispatch<OSEvent>, isActive: boolean, state: OSState }) => {
+const OSWindow: React.FC<{ win: AppWindow, dispatch: React.Dispatch<OSEvent>, isActive: boolean, state: OSState }> = ({ win, dispatch, isActive, state }) => {
   // --- Lifecycle Phase 5: Minimized windows are not rendered on desktop ---
   if (win.isMinimized) return null;
 
@@ -847,15 +852,27 @@ const ClientHub = ({ clients, notes, activePage, navigationState, dispatch, winI
    const selectedClientId = navigationState?.selectedClientId;
    const selectedClient = selectedClientId ? clients.find((c: any) => c.id === selectedClientId) : null;
    const isEditing = navigationState?.isEditing || false;
-   const [editForm, setEditForm] = useState(selectedClient?.fullProfile || {});
+   // Initialize edit form with both fullProfile properties and top-level legalName
+   const [editForm, setEditForm] = useState(selectedClient ? { ...selectedClient.fullProfile, legalName: selectedClient.legalName } : {});
 
    useEffect(() => {
-      if(selectedClient) setEditForm(selectedClient.fullProfile);
+      // Correctly sync top-level legalName into edit form when selectedClient changes
+      if(selectedClient) setEditForm({ ...selectedClient.fullProfile, legalName: selectedClient.legalName });
    }, [selectedClient]);
 
    const handleSave = () => {
       if (!selectedClient) return;
-      const updated = { ...selectedClient, lastUpdated: new Date().toISOString(), fullProfile: editForm };
+      
+      // Extract legalName from editForm to update it at the top level
+      const { legalName, ...restProfile } = editForm;
+      
+      const updated = { 
+          ...selectedClient, 
+          legalName: legalName, 
+          lastUpdated: new Date().toISOString(), 
+          fullProfile: restProfile 
+      };
+      
       dispatch({ type: 'CLIENT_UPDATE', source: 'ClientHub', payload: { client: updated } });
       dispatch({ type: 'NAVIGATE_INTERNAL', source: 'ClientHub', payload: { windowID: winID, state: { isEditing: false } } });
    };
@@ -906,8 +923,10 @@ const ClientHub = ({ clients, notes, activePage, navigationState, dispatch, winI
                   <div className="grid grid-cols-2 gap-6">
                      <div>
                         <h3 className="font-bold text-gray-400 text-xs uppercase mb-2">Details</h3>
-                        <p>Phone: {selectedClient.fullProfile.phone}</p>
-                        <p>Email: {selectedClient.fullProfile.email}</p>
+                        <p><span className="font-medium text-gray-600">Legal Name:</span> {selectedClient.legalName || 'N/A'}</p>
+                        <p><span className="font-medium text-gray-600">Phone:</span> {selectedClient.fullProfile.phone || 'N/A'}</p>
+                        <p><span className="font-medium text-gray-600">Email:</span> {selectedClient.fullProfile.email || 'N/A'}</p>
+                        <p><span className="font-medium text-gray-600">Housing:</span> {selectedClient.fullProfile.housingStatus || 'N/A'}</p>
                      </div>
                      <div>
                         <h3 className="font-bold text-gray-400 text-xs uppercase mb-2">Notes</h3>

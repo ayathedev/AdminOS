@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react';
 
 interface DebugSectionProps {
   title: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   defaultOpen?: boolean;
 }
 

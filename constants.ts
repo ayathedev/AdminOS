@@ -138,8 +138,41 @@ When all questions are complete:
 After presenting the completed form:
 - Ask: “Would you like to approve this intake?”
 - If the user says yes:
-  - Confirm that the client will be added to the Active Clients list under their
-    Preferred Name.
+  1. Confirm to the user that the client is being added to the database.
+  2. IMMEDIATELY AFTER your text response, output a HIDDEN JSON block containing the structured client data.
+     The JSON block must be wrapped in \`\`\`json\`\`\` tags.
+     The JSON object must have these fields:
+     {
+       "preferredName": "String",
+       "legalName": "String",
+       "status": "Active",
+       "intakeDate": "ISO Date String",
+       "fullProfile": {
+          "pronouns": "String",
+          "dob": "YYYY-MM-DD",
+          "phone": "String",
+          "email": "String",
+          "address": "String",
+          "housingStatus": "String",
+          "referralSource": "String",
+          "dateEntered": "String",
+          "caseManager": "String",
+          "programType": "String",
+          "householdMembers": [{"name": "String", "age": "String", "relationship": "String"}],
+          "custodyNotes": "String",
+          "primaryNeeds": {"housing": boolean, "income": boolean, "benefits": boolean, "mentalHealth": boolean, "physicalHealth": boolean, "transportation": boolean, "documentation": boolean, "safety": boolean, "other": boolean, "notes": "String"},
+          "strengths": "String",
+          "shortTermGoals": "String",
+          "longTermGoals": "String",
+          "currentServices": "String",
+          "referrals": "String",
+          "lifeSkills": "String",
+          "contactLog": [{"date": "String", "type": "String", "summary": "String"}],
+          "initialReview": {"progress": "String", "barriers": "String", "strengths": "String", "nextSteps": "String"},
+          "safety": {"crisisConcerns": "String", "safetyPlan": "String", "emergencyContacts": "String"},
+          "documentation": {"intakeCompleted": boolean, "roi": boolean, "idDocs": boolean, "housingDocs": boolean, "incomeVerif": boolean, "caseNotes": boolean, "monthlyReview": boolean}
+       }
+     }
 - If the user says no:
   - Allow the user to select a section to edit.
   - Re-ask only the questions in that section.
@@ -234,6 +267,72 @@ export const HUBS: Hub[] = [
     pages: ['Old Clients', 'Past Grants', 'History']
   }
 ];
+
+export const DEFAULT_CLIENT = {
+  id: 'jordan-default',
+  preferredName: 'Jordan',
+  legalName: 'Jordan Taylor',
+  status: 'Active',
+  intakeDate: new Date().toISOString(),
+  lastUpdated: new Date().toISOString(),
+  fullProfile: {
+    pronouns: 'they/them',
+    dob: '1995-05-12',
+    phone: '555-0123',
+    email: 'jordan.t@example.com',
+    address: 'Currently couch surfing at 123 Main St',
+    housingStatus: 'Unstable / Couch surfing',
+    referralSource: 'Drop-in Center',
+    dateEntered: '2023-10-15',
+    caseManager: 'Aya Kalimah Satya Ruane',
+    programType: 'Housing Stabilization',
+    householdMembers: [
+       { name: "Sam", age: "5", relationship: "Child" }
+    ],
+    custodyNotes: "Joint custody, weekends only",
+    primaryNeeds: {
+      housing: true,
+      income: true,
+      benefits: false,
+      mentalHealth: true,
+      physicalHealth: false,
+      transportation: true,
+      documentation: false,
+      safety: false,
+      other: false,
+      notes: "Needs immediate housing support and bus passes."
+    },
+    strengths: "Resilient, artistic, good with kids, strong network of friends.",
+    shortTermGoals: "Secure permanent housing, Find part-time work, Enroll Sam in school",
+    longTermGoals: "Complete GED, Stable apartment lease for 12 months",
+    currentServices: "SNAP, Medicaid",
+    referrals: "Referred to Housing First Initiative",
+    lifeSkills: "Budgeting, Time Management",
+    contactLog: [
+      { date: '2023-10-15', type: 'In-Person', summary: 'Initial intake completed. Housing assessment done.' }
+    ],
+    initialReview: {
+       progress: "N/A - Intake",
+       barriers: "Lack of ID for apartment application",
+       strengths: "Motivated",
+       nextSteps: "Obtain copy of birth certificate"
+    },
+    safety: {
+       crisisConcerns: "History of DV, currently safe.",
+       safetyPlan: "Call sister if unsafe.",
+       emergencyContacts: "Sister: 555-9999"
+    },
+    documentation: {
+       intakeCompleted: true,
+       roi: true,
+       idDocs: false,
+       housingDocs: false,
+       incomeVerif: true,
+       caseNotes: true,
+       monthlyReview: false
+    }
+  }
+};
 
 export const MOCK_NOTIFICATIONS = [
   { id: 1, title: 'Grant Report Due', time: '2h ago', urgent: true },

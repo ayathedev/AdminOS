@@ -28,3 +28,20 @@ export interface WidgetData {
   type: 'list' | 'stat' | 'text' | 'chart';
   data: any;
 }
+
+export interface Client {
+  id: string;
+  preferredName: string;
+  status: 'Active' | 'Closed';
+  intakeDate: string;
+  lastUpdated: string;
+  fullProfile: Record<string, any>;
+}
+
+export interface ClientActivity {
+  id: string;
+  timestamp: Date;
+  type: string;
+  description: string;
+  clientName?: string;
+}

@@ -52,6 +52,18 @@ const calculateAge = (dobString: string) => {
 const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[], onUpdateTask: (t: Task) => void, onOpenTaskModal: () => void }) => {
   const highPriorityTasks = tasks.filter(t => !t.isCompleted && t.priority === 'High');
   const otherTasks = tasks.filter(t => !t.isCompleted && t.priority !== 'High').slice(0, 3);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+
+  const startEditing = (task: Task) => {
+    setEditingId(task.id);
+    setEditTitle(task.title);
+  };
+
+  const saveEdit = (task: Task) => {
+    onUpdateTask({ ...task, title: editTitle });
+    setEditingId(null);
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -83,10 +95,30 @@ const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[
                       <Circle size={20} />
                    </button>
                    <div className="flex-1">
-                      <p className="font-medium text-gray-800">{task.title}</p>
-                      {task.dueDate && <p className="text-xs text-rose-600 mt-1">Due: {task.dueDate}</p>}
+                      {editingId === task.id ? (
+                        <div className="flex gap-2">
+                          <input 
+                            className="flex-1 border rounded px-2 py-1 text-sm"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            autoFocus
+                          />
+                          <button onClick={() => saveEdit(task)} className="text-green-600"><Save size={16}/></button>
+                          <button onClick={() => setEditingId(null)} className="text-gray-400"><X size={16}/></button>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="font-medium text-gray-800">{task.title}</p>
+                          {task.dueDate && <p className="text-xs text-rose-600 mt-1">Due: {task.dueDate}</p>}
+                        </>
+                      )}
                    </div>
-                   <div className="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded font-medium">High</div>
+                   {editingId !== task.id && (
+                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
+                        <button onClick={() => startEditing(task)} className="text-gray-400 hover:text-indigo-600"><Pencil size={14} /></button>
+                        <div className="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded font-medium">High</div>
+                     </div>
+                   )}
                 </div>
              ))}
           </div>
@@ -135,20 +167,28 @@ const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: 
          {urgentTasks.map(task => {
             const client = clients.find(c => c.id === task.clientId);
             return (
-               <div key={task.id} className="bg-white p-4 rounded-xl border border-l-4 border-gray-200 border-l-rose-500 shadow-sm flex items-start gap-4">
-                  <div className="flex-1">
+               <div key={task.id} className="bg-white p-4 rounded-xl border border-l-4 border-gray-200 border-l-rose-500 shadow-sm flex flex-col md:flex-row items-start md:items-center gap-4">
+                  <div className="flex-1 w-full">
                      <div className="flex items-center gap-2 mb-1">
                         <span className="font-bold text-gray-800">{task.title}</span>
                         {client && <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">{client.preferredName}</span>}
                      </div>
-                     <div className="flex gap-4 text-xs text-gray-500">
-                        {task.dueDate && <span className="text-rose-600 font-medium">Due: {task.dueDate}</span>}
-                        <span>Priority: {task.priority}</span>
+                     <div className="flex flex-wrap gap-4 text-xs text-gray-500 items-center mt-2">
+                        <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                           <span>Due:</span>
+                           <input 
+                              type="date" 
+                              className="bg-transparent border-none outline-none text-gray-700 p-0 h-auto font-medium"
+                              value={task.dueDate || ''}
+                              onChange={(e) => onUpdateTask({...task, dueDate: e.target.value})}
+                           />
+                        </div>
+                        <span className="text-rose-600 font-medium">Priority: {task.priority}</span>
                      </div>
                   </div>
                   <button 
                      onClick={() => onUpdateTask({...task, isCompleted: true})}
-                     className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition flex items-center gap-1"
+                     className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition flex items-center gap-1 shrink-0"
                   >
                      <CheckCircle2 size={14} /> Complete
                   </button>
@@ -160,9 +200,21 @@ const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: 
   );
 };
 
-const WeeklyView = ({ tasks }: { tasks: Task[] }) => {
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+const WeeklyView = ({ tasks, onAddTaskForDay }: { tasks: Task[], onAddTaskForDay: (date: string) => void }) => {
+  const [currentWeek, setCurrentWeek] = useState<Date[]>([]);
+
+  useEffect(() => {
+    const curr = new Date();
+    const first = curr.getDate() - curr.getDay() + 1; // First day is Monday
+    const week = [];
+    for (let i = 0; i < 5; i++) {
+      const day = new Date(curr.setDate(first + i));
+      week.push(new Date(day));
+    }
+    setCurrentWeek(week);
+  }, []);
+
+  const todayStr = new Date().toISOString().split('T')[0];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -172,24 +224,40 @@ const WeeklyView = ({ tasks }: { tasks: Task[] }) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-         {days.map(day => (
-            <div key={day} className={`bg-white rounded-xl border p-4 min-h-[200px] flex flex-col ${day === today ? 'border-indigo-500 ring-1 ring-indigo-500 shadow-md' : 'border-gray-200'}`}>
-               <h3 className={`font-bold mb-3 ${day === today ? 'text-indigo-600' : 'text-gray-400'}`}>{day}</h3>
-               <div className="space-y-2 flex-1">
-                  {/* Mock logic for demo - in real app, filter tasks by date */}
-                  {day === today && (
-                     <div className="text-xs bg-indigo-50 text-indigo-700 p-2 rounded">
-                        Team Meeting <span className="opacity-75 block text-[10px]">2:00 PM</span>
-                     </div>
-                  )}
-                  {tasks.filter(t => !t.isCompleted && t.priority === 'High' && day === 'Friday').slice(0, 1).map(t => (
-                     <div key={t.id} className="text-xs bg-rose-50 text-rose-700 p-2 rounded">
-                        {t.title}
-                     </div>
-                  ))}
-               </div>
-            </div>
-         ))}
+         {currentWeek.map(dateObj => {
+            const dateStr = dateObj.toISOString().split('T')[0];
+            const isToday = dateStr === todayStr;
+            const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+            const dayTasks = tasks.filter(t => !t.isCompleted && t.dueDate === dateStr);
+
+            return (
+              <div key={dateStr} className={`bg-white rounded-xl border p-4 min-h-[300px] flex flex-col ${isToday ? 'border-indigo-500 ring-1 ring-indigo-500 shadow-md' : 'border-gray-200'}`}>
+                 <div className="flex justify-between items-start mb-3">
+                    <div>
+                       <h3 className={`font-bold ${isToday ? 'text-indigo-600' : 'text-gray-700'}`}>{dayName}</h3>
+                       <p className="text-xs text-gray-400">{dateObj.toLocaleDateString()}</p>
+                    </div>
+                    <button 
+                      onClick={() => onAddTaskForDay(dateStr)}
+                      className="text-gray-300 hover:text-indigo-600 transition"
+                    >
+                       <PlusCircle size={16} />
+                    </button>
+                 </div>
+                 
+                 <div className="space-y-2 flex-1 overflow-y-auto">
+                    {dayTasks.length === 0 && (
+                       <div className="text-[10px] text-gray-300 text-center py-4 italic">No tasks</div>
+                    )}
+                    {dayTasks.map(t => (
+                       <div key={t.id} className={`text-xs p-2 rounded border border-l-2 ${t.priority === 'High' ? 'bg-rose-50 border-rose-200 border-l-rose-500 text-rose-800' : 'bg-gray-50 border-gray-100 border-l-gray-400 text-gray-700'}`}>
+                          {t.title}
+                       </div>
+                    ))}
+                 </div>
+              </div>
+            );
+         })}
       </div>
     </div>
   );
@@ -778,11 +846,11 @@ const QuickAddNoteModal = ({ onClose, clients, onSave }: { onClose: () => void, 
   );
 };
 
-const QuickAddTaskModal = ({ onClose, clients, onSave }: { onClose: () => void, clients: Client[], onSave: (task: Task) => void }) => {
+const QuickAddTaskModal = ({ onClose, clients, onSave, initialDate, initialPriority }: { onClose: () => void, clients: Client[], onSave: (task: Task) => void, initialDate?: string, initialPriority?: 'High'|'Medium'|'Low' }) => {
   const [title, setTitle] = useState('');
   const [clientId, setClientId] = useState<string>('');
-  const [priority, setPriority] = useState<'High'|'Medium'|'Low'>('Medium');
-  const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<'High'|'Medium'|'Low'>(initialPriority || 'Medium');
+  const [dueDate, setDueDate] = useState(initialDate || '');
 
   const handleSave = () => {
     if (!title.trim()) return;
@@ -813,6 +881,7 @@ const QuickAddTaskModal = ({ onClose, clients, onSave }: { onClose: () => void, 
                    placeholder="e.g. Call Housing Authority"
                    value={title}
                    onChange={e => setTitle(e.target.value)}
+                   autoFocus
                 />
              </div>
              <div className="grid grid-cols-2 gap-4">
@@ -1036,11 +1105,12 @@ interface OSWindowProps {
   resetViewTrigger: number;
   onUpdateTask: (task: Task) => void;
   onOpenTaskModal: () => void;
+  onAddTaskForDay: (date: string) => void;
 }
 
 const OSWindow: React.FC<OSWindowProps> = ({ 
   win, isActive, onActivate, onClose, onMinimize, onOpenChat, clients, activities, osActivities, tasks,
-  onAddClient, onUpdateClient, onOpenIntake, onLogActivity, resetViewTrigger, onUpdateTask, onOpenTaskModal 
+  onAddClient, onUpdateClient, onOpenIntake, onLogActivity, resetViewTrigger, onUpdateTask, onOpenTaskModal, onAddTaskForDay 
 }) => {
   const hub = HUBS.find(h => h.id === win.hubId);
   const isActivityLog = win.hubId === 'activity-log';
@@ -1143,7 +1213,7 @@ const OSWindow: React.FC<OSWindowProps> = ({
        return <UrgentView tasks={tasks} clients={clients} onUpdateTask={onUpdateTask} />;
     }
     if (win.hubId === 'weekly') {
-       return <WeeklyView tasks={tasks} />;
+       return <WeeklyView tasks={tasks} onAddTaskForDay={onAddTaskForDay} />;
     }
 
     if (!hub) return null;
@@ -1275,6 +1345,7 @@ export default function Desktop() {
   const [showClientIntake, setShowClientIntake] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskModalProps, setTaskModalProps] = useState<{initialDate?: string, initialPriority?: 'High'|'Medium'|'Low'}>({});
 
   const [resetViewTrigger, setResetViewTrigger] = useState(0); 
   
@@ -1299,11 +1370,12 @@ export default function Desktop() {
     }
   ]);
   const [notes, setNotes] = useState<Note[]>([]);
+  // Fix mock data type mapping
   const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS.map(t => ({
     id: `task-${t.id}`,
-    title: t.text,
+    title: (t as any).text, // Cast to any to avoid type error with mock data
     priority: 'Medium',
-    isCompleted: t.done
+    isCompleted: (t as any).done
   } as Task)));
 
   // Chat State
@@ -1413,8 +1485,19 @@ export default function Desktop() {
 
   const handleUpdateTask = (updatedTask: Task) => {
     setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
-    const status = updatedTask.isCompleted ? 'completed' : 'updated';
-    logOSActivity('Task', `Task ${status}: ${updatedTask.title}`, 'Tasks');
+    // If only updated date/title, message is diff
+    const isCompletionToggle = updatedTask.isCompleted !== tasks.find(t => t.id === updatedTask.id)?.isCompleted;
+    if (isCompletionToggle) {
+       const status = updatedTask.isCompleted ? 'completed' : 'reopened';
+       logOSActivity('Task', `Task ${status}: ${updatedTask.title}`, 'Tasks');
+    } else {
+       logOSActivity('Task', `Task updated: ${updatedTask.title}`, 'Tasks');
+    }
+  };
+
+  const handleOpenTaskModal = (props: {initialDate?: string, initialPriority?: 'High'|'Medium'|'Low'} = {}) => {
+    setTaskModalProps(props);
+    setShowTaskModal(true);
   };
 
   // --- Window Management ---
@@ -1663,7 +1746,7 @@ export default function Desktop() {
               Client
             </button>
             <button 
-              onClick={() => setShowTaskModal(true)}
+              onClick={() => handleOpenTaskModal()}
               className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 py-2 rounded-lg text-xs font-medium transition"
             >
               Task
@@ -1874,7 +1957,8 @@ export default function Desktop() {
           onLogActivity={handleLogClientActivity}
           resetViewTrigger={resetViewTrigger}
           onUpdateTask={handleUpdateTask}
-          onOpenTaskModal={() => setShowTaskModal(true)}
+          onOpenTaskModal={() => handleOpenTaskModal({initialPriority: 'High'})}
+          onAddTaskForDay={(date) => handleOpenTaskModal({initialDate: date})}
         />
       ))}
       
@@ -1898,6 +1982,8 @@ export default function Desktop() {
             onClose={() => setShowTaskModal(false)}
             clients={clients}
             onSave={handleSaveTask}
+            initialDate={taskModalProps.initialDate}
+            initialPriority={taskModalProps.initialPriority}
          />
       )}
 

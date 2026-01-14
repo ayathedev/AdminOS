@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Wifi, Battery, Bell, Search, LayoutGrid, 
   X, Minus, Square, Send, Maximize2, Minimize2,
   Calendar as CalendarIcon, CheckSquare, Activity, User
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
-import { HUBS, MOCK_NOTIFICATIONS, MOCK_TASKS } from '../constants';
+import { HUBS, MOCK_NOTIFICATIONS, MOCK_TASKS, CLIENT_INTAKE_CONTEXT } from '../constants';
 import { Hub, AppWindow, ChatMessage } from '../types';
 import { generateOSResponse } from '../services/geminiService';
 
@@ -35,6 +35,239 @@ const IconComponent = ({ name, className }: { name: string, className?: string }
   return <Icon className={className} />;
 };
 
+const QuickAddClientModal = ({ onClose }: { onClose: () => void }) => {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Initialize
+  useEffect(() => {
+    const init = async () => {
+      setIsLoading(true);
+      // We send a hidden prompt to kickstart the model's behavior defined in context
+      const response = await generateOSResponse(
+        "Please start the client intake process now. Introduce yourself and ask for the first piece of information according to the protocol.", 
+        CLIENT_INTAKE_CONTEXT
+      );
+      setMessages([{
+        id: 'init',
+        role: 'model',
+        text: response,
+        timestamp: new Date()
+      }]);
+      setIsLoading(false);
+    };
+    init();
+  }, []);
+
+  // Auto scroll
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isLoading]);
+
+  const handleSend = async () => {
+    if (!input.trim()) return;
+    const userText = input;
+    setInput('');
+    
+    const newUserMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: 'user',
+      text: userText,
+      timestamp: new Date()
+    };
+    
+    setMessages(prev => [...prev, newUserMsg]);
+    setIsLoading(true);
+
+    // Build history string for context
+    const history = messages.map(m => `${m.role === 'user' ? 'User' : 'System'}: ${m.text}`).join('\n');
+    const fullContext = `${CLIENT_INTAKE_CONTEXT}\n\nPREVIOUS CONVERSATION:\n${history}`;
+
+    const responseText = await generateOSResponse(userText, fullContext);
+
+    const newModelMsg: ChatMessage = {
+      id: (Date.now() + 1).toString(),
+      role: 'model',
+      text: responseText,
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, newModelMsg]);
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose}></div>
+       <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh] relative overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          {/* Header */}
+          <div className="h-14 bg-teal-600 flex items-center justify-between px-6 shrink-0">
+             <div className="flex items-center gap-2 text-white font-semibold">
+                <User size={20} />
+                <span>New Client Intake</span>
+             </div>
+             <button onClick={onClose} className="text-teal-100 hover:text-white transition">
+                <X size={20} />
+             </button>
+          </div>
+
+          {/* Chat Area */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50" ref={scrollRef}>
+             {messages.map(msg => (
+                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-5 py-3.5 text-sm shadow-sm leading-relaxed
+                    ${msg.role === 'user' 
+                      ? 'bg-teal-600 text-white rounded-br-none' 
+                      : 'bg-white text-gray-700 border border-gray-200 rounded-bl-none'}
+                  `}>
+                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                  </div>
+                </div>
+             ))}
+             {isLoading && (
+               <div className="flex justify-start">
+                 <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-none px-4 py-3 shadow-sm flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-75"></div>
+                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-150"></div>
+                 </div>
+               </div>
+             )}
+          </div>
+
+          {/* Input Area */}
+          <div className="p-4 bg-white border-t border-gray-200">
+             <div className="flex gap-3">
+               <input 
+                 className="flex-1 bg-gray-100 hover:bg-gray-50 focus:bg-white border border-transparent focus:border-teal-500 rounded-xl px-4 py-3 outline-none transition-all text-sm text-gray-800"
+                 placeholder="Enter client details..."
+                 value={input}
+                 onChange={e => setInput(e.target.value)}
+                 onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                 disabled={isLoading}
+                 autoFocus
+               />
+               <button 
+                 onClick={handleSend}
+                 disabled={isLoading || !input.trim()}
+                 className={`px-4 rounded-xl flex items-center justify-center transition-all
+                   ${input.trim() ? 'bg-teal-600 hover:bg-teal-700 text-white shadow-md' : 'bg-gray-200 text-gray-400'}
+                 `}
+               >
+                 <Send size={20} />
+               </button>
+             </div>
+          </div>
+       </div>
+    </div>
+  );
+};
+
+interface OSWindowProps {
+  win: AppWindow;
+  isActive: boolean;
+  onActivate: (id: string) => void;
+  onClose: (id: string) => void;
+  onOpenChat: () => void;
+}
+
+const OSWindow = ({ win, isActive, onActivate, onClose, onOpenChat }: OSWindowProps) => {
+  const hub = HUBS.find(h => h.id === win.hubId);
+  if (!hub) return null;
+
+  return (
+    <div 
+      className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] h-[80vh] max-w-5xl bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 border border-gray-200
+        ${isActive ? 'z-30 scale-100 opacity-100' : 'z-20 scale-95 opacity-0 pointer-events-none'}
+      `}
+      style={{ display: win.isOpen ? 'flex' : 'none' }}
+      onClick={() => onActivate(win.id)}
+    >
+      {/* Window Header */}
+      <div className={`h-10 ${hub.color} flex items-center justify-between px-3 shrink-0`}>
+         <div className="flex items-center gap-2 text-white font-medium text-sm">
+            <IconComponent name={hub.icon} className="w-4 h-4 opacity-80" />
+            {win.title}
+         </div>
+         <div className="flex items-center gap-2">
+            <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={() => {/* minimize logic */}}>
+              <Minus size={14} />
+            </button>
+            <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={() => {/* maximize logic */}}>
+              <Square size={12} />
+            </button>
+            <button className="p-1 hover:bg-red-500/80 rounded text-white/80 hover:text-white" onClick={(e) => { e.stopPropagation(); onClose(win.id); }}>
+              <X size={14} />
+            </button>
+         </div>
+      </div>
+
+      {/* Window Content */}
+      <div className="flex-1 overflow-auto bg-gray-50 flex">
+        {/* Sidebar */}
+        <div className="w-48 bg-white border-r border-gray-200 p-4 hidden md:block">
+          <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Pages</h4>
+          <ul className="space-y-1">
+            {hub.pages.map(page => (
+              <li key={page} className="text-sm text-gray-600 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer transition">
+                {page}
+              </li>
+            ))}
+          </ul>
+        </div>
+        
+        {/* Main Area */}
+        <div className="flex-1 p-8">
+           <div className="max-w-3xl mx-auto">
+              <div className="mb-8">
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome to {hub.name}</h1>
+                <p className="text-gray-500">{hub.description}</p>
+              </div>
+
+              {/* Mock Content based on Hub Type */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                    <h3 className="font-semibold text-gray-800 mb-4">Recent Activity</h3>
+                    <div className="space-y-4">
+                       {[1, 2, 3].map(i => (
+                         <div key={i} className="flex gap-3 items-start">
+                            <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 shrink-0">
+                              <User size={14} />
+                            </div>
+                            <div>
+                              <div className="h-2 w-32 bg-gray-200 rounded mb-1"></div>
+                              <div className="h-2 w-20 bg-gray-100 rounded"></div>
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+                 </div>
+
+                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center text-center">
+                    <div className="w-12 h-12 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-4">
+                      <IconComponent name="Sparkles" className="w-6 h-6" />
+                    </div>
+                    <h3 className="font-semibold text-gray-800 mb-2">Need something else?</h3>
+                    <p className="text-sm text-gray-500 mb-4">Ask the OS Assistant to generate reports, draft emails, or summarize data for this hub.</p>
+                    <button 
+                      onClick={() => onOpenChat()}
+                      className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+                    >
+                      Open Assistant
+                    </button>
+                 </div>
+              </div>
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Main Desktop ---
 
 export default function Desktop() {
@@ -43,6 +276,7 @@ export default function Desktop() {
   const [activeWindowId, setActiveWindowId] = useState<string | null>(null);
   const [isLauncherOpen, setIsLauncherOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [showClientIntake, setShowClientIntake] = useState(false);
   
   // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -239,7 +473,10 @@ export default function Desktop() {
             <button className="flex-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 py-2 rounded-lg text-xs font-medium transition">
               Note
             </button>
-            <button className="flex-1 bg-teal-100 hover:bg-teal-200 text-teal-700 py-2 rounded-lg text-xs font-medium transition">
+            <button 
+              onClick={() => setShowClientIntake(true)}
+              className="flex-1 bg-teal-100 hover:bg-teal-200 text-teal-700 py-2 rounded-lg text-xs font-medium transition"
+            >
               Client
             </button>
             <button className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 py-2 rounded-lg text-xs font-medium transition">
@@ -323,101 +560,6 @@ export default function Desktop() {
     </div>
   );
 
-  const OSWindow = ({ win }: { win: AppWindow }) => {
-    const hub = HUBS.find(h => h.id === win.hubId);
-    if (!hub) return null;
-
-    const isActive = activeWindowId === win.id;
-
-    return (
-      <div 
-        className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] h-[80vh] max-w-5xl bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 border border-gray-200
-          ${isActive ? 'z-30 scale-100 opacity-100' : 'z-20 scale-95 opacity-0 pointer-events-none'}
-        `}
-        style={{ display: win.isOpen ? 'flex' : 'none' }}
-        onClick={() => setActiveWindowId(win.id)}
-      >
-        {/* Window Header */}
-        <div className={`h-10 ${hub.color} flex items-center justify-between px-3 shrink-0`}>
-           <div className="flex items-center gap-2 text-white font-medium text-sm">
-              <IconComponent name={hub.icon} className="w-4 h-4 opacity-80" />
-              {win.title}
-           </div>
-           <div className="flex items-center gap-2">
-              <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={() => {/* minimize logic */}}>
-                <Minus size={14} />
-              </button>
-              <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={() => {/* maximize logic */}}>
-                <Square size={12} />
-              </button>
-              <button className="p-1 hover:bg-red-500/80 rounded text-white/80 hover:text-white" onClick={(e) => { e.stopPropagation(); closeWindow(win.id); }}>
-                <X size={14} />
-              </button>
-           </div>
-        </div>
-
-        {/* Window Content */}
-        <div className="flex-1 overflow-auto bg-gray-50 flex">
-          {/* Sidebar */}
-          <div className="w-48 bg-white border-r border-gray-200 p-4 hidden md:block">
-            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Pages</h4>
-            <ul className="space-y-1">
-              {hub.pages.map(page => (
-                <li key={page} className="text-sm text-gray-600 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer transition">
-                  {page}
-                </li>
-              ))}
-            </ul>
-          </div>
-          
-          {/* Main Area */}
-          <div className="flex-1 p-8">
-             <div className="max-w-3xl mx-auto">
-                <div className="mb-8">
-                  <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome to {hub.name}</h1>
-                  <p className="text-gray-500">{hub.description}</p>
-                </div>
-
-                {/* Mock Content based on Hub Type */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                      <h3 className="font-semibold text-gray-800 mb-4">Recent Activity</h3>
-                      <div className="space-y-4">
-                         {[1, 2, 3].map(i => (
-                           <div key={i} className="flex gap-3 items-start">
-                              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 shrink-0">
-                                <User size={14} />
-                              </div>
-                              <div>
-                                <div className="h-2 w-32 bg-gray-200 rounded mb-1"></div>
-                                <div className="h-2 w-20 bg-gray-100 rounded"></div>
-                              </div>
-                           </div>
-                         ))}
-                      </div>
-                   </div>
-
-                   <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center text-center">
-                      <div className="w-12 h-12 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mb-4">
-                        <IconComponent name="Sparkles" className="w-6 h-6" />
-                      </div>
-                      <h3 className="font-semibold text-gray-800 mb-2">Need something else?</h3>
-                      <p className="text-sm text-gray-500 mb-4">Ask the OS Assistant to generate reports, draft emails, or summarize data for this hub.</p>
-                      <button 
-                        onClick={() => setChatOpen(true)}
-                        className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
-                      >
-                        Open Assistant
-                      </button>
-                   </div>
-                </div>
-             </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const ChatOverlay = () => (
     <div className={`fixed bottom-20 right-8 w-96 bg-white rounded-2xl shadow-2xl border border-gray-200 z-[60] flex flex-col overflow-hidden transition-all duration-300 origin-bottom-right
       ${chatOpen ? 'h-[500px] opacity-100 scale-100' : 'h-0 opacity-0 scale-90 pointer-events-none'}
@@ -491,7 +633,17 @@ export default function Desktop() {
       <WidgetArea />
       
       {/* Windows Layer */}
-      {windows.map(win => <OSWindow key={win.id} win={win} />)}
+      {windows.map(win => (
+        <OSWindow 
+          key={win.id} 
+          win={win} 
+          isActive={activeWindowId === win.id}
+          onActivate={(id) => setActiveWindowId(id)}
+          onClose={closeWindow}
+          onOpenChat={() => setChatOpen(true)}
+        />
+      ))}
+      {showClientIntake && <QuickAddClientModal onClose={() => setShowClientIntake(false)} />}
 
       <Launcher />
       <ChatOverlay />

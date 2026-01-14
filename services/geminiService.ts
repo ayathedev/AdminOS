@@ -1,23 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_PROMPT } from '../constants';
 
-const apiKey = process.env.API_KEY || '';
-
-// Initialize Gemini client
-// Note: We create a new instance per call in the component to handle key updates if needed,
-// but here we keep a static one for simplicity if the key is constant. 
-// Given the instructions regarding "Key Selection" mainly apply to Veo, 
-// for text generation we can just use the env key.
-const ai = new GoogleGenAI({ apiKey });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generateOSResponse = async (
   userMessage: string, 
   context: string = ""
 ): Promise<string> => {
-  if (!apiKey) {
-    return "Error: API Key is missing. Please check your environment configuration.";
-  }
-
   try {
     const model = "gemini-3-flash-preview"; 
     

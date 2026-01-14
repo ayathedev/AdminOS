@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { HUBS, MOCK_NOTIFICATIONS, MOCK_TASKS, CLIENT_INTAKE_CONTEXT, DEFAULT_CLIENT, INITIAL_PARTNERS } from '../constants';
-import { Hub, AppWindow, ChatMessage, Client, ClientActivity, OSActivity, Note, Task, Partner, OSState, OSEvent } from '../types';
+import { Hub, AppWindow, ChatMessage, Client, ClientActivity, OSActivity, Note, Task, Partner, OSState, OSEvent, IntakeSession } from '../types';
 import { generateOSResponse } from '../services/geminiService';
 
 // --- Icon Helper ---
@@ -20,400 +20,347 @@ const IconComponent = ({ name, className }: { name: string, className?: string }
   return <Icon className={className} />;
 };
 
-// --- Initial State Setup ---
-
+// --- Utilities ---
 const generateID = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+const nowISO = () => new Date().toISOString();
 
+// --- Initial State ---
 const initialState: OSState = {
-  windows: {
-    byID: {},
-    order: [],
-    focusedWindowID: null,
-  },
-  dock: {
-    pinnedAppIDs: ['command', 'clients', 'partnerships'],
-    runningAppIDs: [],
-  },
+  windows: { byID: {}, order: [], focusedWindowID: null },
+  dock: { pinnedAppIDs: ['command', 'clients', 'partnerships'], runningAppIDs: [] },
   data: {
     clients: { [DEFAULT_CLIENT.id]: DEFAULT_CLIENT },
     notes: {},
     tasks: MOCK_TASKS.reduce((acc, t) => ({ ...acc, [t.id]: t }), {} as Record<string, Task>),
     partners: INITIAL_PARTNERS.reduce((acc, p) => ({ ...acc, [p.id]: p }), {} as Record<string, Partner>),
+    intakes: {}
   },
   system: {
-    overlays: {
-      blurActive: false,
-      activeModalWindowID: null,
-    },
+    overlays: { blurActive: false, activeModalWindowID: null },
     launcherOpen: false,
     chatOpen: false,
-    weeklyNotes: "Focus on grant reporting and hiring plan.",
+    weeklyNotes: "Focus on grant reporting and hiring plan."
   },
   logging: {
     events: [],
-    activities: [
-      { id: 'os-init', timestamp: new Date(), type: 'System', description: 'OS Booted Successfully', target: 'System' }
-    ],
+    activities: [{ id: 'os-init', timestamp: new Date(), type: 'System', description: 'OS Booted Successfully', target: 'System' }]
   },
 };
 
-// --- Reducer Logic ---
+// --- Handlers (Pure Functions) ---
 
-function osReducer(state: OSState, event: OSEvent): OSState {
-  // Log event
-  const timestamp = event.timestamp || new Date().toISOString();
-  const newEvents = [...state.logging.events, { ...event, timestamp }];
+// Helpers
+const logActivity = (state: OSState, type: string, description: string, target?: string): OSState => ({
+   ...state,
+   logging: {
+      ...state.logging,
+      activities: [{ id: generateID('act'), timestamp: new Date(), type, description, target }, ...state.logging.activities]
+   }
+});
+
+const handleWindowOpen = (state: OSState, payload: any): OSState => {
+  const { appID, initialPage, extraState } = payload;
+  const hub = HUBS.find(h => h.id === appID) || { id: appID, name: appID === 'note-editor' ? 'Note Editor' : (appID === 'intake-wizard' ? 'Intake Wizard' : appID), icon: 'Square', color: 'bg-gray-500', pages: [], description: '' };
   
-  // Helper to log user activity
-  const logActivity = (type: string, description: string, target?: string): OSActivity[] => {
-    return [{ id: generateID('act'), timestamp: new Date(), type, description, target }, ...state.logging.activities];
+  const newWindowID = generateID('win');
+  const isModal = appID === 'note-editor' || appID === 'intake-wizard';
+  const defaultWidth = appID === 'note-editor' ? 520 : (appID === 'intake-wizard' ? 600 : 900);
+  const defaultHeight = appID === 'note-editor' ? 420 : (appID === 'intake-wizard' ? 700 : 600);
+
+  const count = Object.keys(state.windows.byID).length;
+  const position = { x: 100 + (count * 30), y: 50 + (count * 30) };
+
+  const newWindow: AppWindow = {
+    id: newWindowID,
+    hubId: appID,
+    title: extraState?.title || hub.name,
+    isOpen: true,
+    isMinimized: false,
+    isMaximized: false,
+    zIndex: isModal ? 9999 : state.windows.order.length + 10,
+    position,
+    size: { width: defaultWidth, height: defaultHeight },
+    activePage: initialPage || (hub.pages ? hub.pages[0] : undefined),
+    ...extraState
   };
 
-  let newState = { ...state, logging: { ...state.logging, events: newEvents } };
+  const newRunning = state.dock.runningAppIDs.includes(appID) ? state.dock.runningAppIDs : [...state.dock.runningAppIDs, appID];
+  const newOverlays = isModal ? { blurActive: true, activeModalWindowID: newWindowID } : state.system.overlays;
 
-  switch (event.type) {
-    // --- Window Events ---
-    case 'WINDOW_OPEN': {
-      const { appID, initialPage, extraState } = event.payload;
-      const hub = HUBS.find(h => h.id === appID) || { id: appID, name: appID, icon: 'Square', color: 'bg-gray-500', pages: [], description: '' };
-      
-      const newWindowID = generateID('win');
-      const isNoteEditor = appID === 'note-editor';
-      const isModal = isNoteEditor; // Define other modals here if needed
+  let newState = {
+    ...state,
+    windows: { 
+       byID: { ...state.windows.byID, [newWindowID]: newWindow }, 
+       order: [...state.windows.order, newWindowID], 
+       focusedWindowID: newWindowID 
+    },
+    dock: { ...state.dock, runningAppIDs: newRunning },
+    system: { ...state.system, overlays: newOverlays }
+  };
+  return logActivity(newState, 'System', `Opened ${hub.name}`, 'WindowManager');
+};
 
-      const defaultWidth = isNoteEditor ? 520 : 900;
-      const defaultHeight = isNoteEditor ? 420 : 600;
+const handleWindowClose = (state: OSState, payload: any): OSState => {
+  const { windowID } = payload;
+  const win = state.windows.byID[windowID];
+  if (!win) return state;
 
-      // Stagger position
-      const count = Object.keys(state.windows.byID).length;
-      const position = { x: 100 + (count * 30), y: 50 + (count * 30) };
+  const { [windowID]: _, ...remainingByID } = state.windows.byID;
+  const newOrder = state.windows.order.filter(id => id !== windowID);
+  const newFocused = newOrder.length > 0 ? newOrder[newOrder.length - 1] : null;
 
-      const newWindow: AppWindow = {
-        id: newWindowID,
-        hubId: appID,
-        title: extraState?.title || hub.name,
-        isOpen: true,
-        isMinimized: false,
-        isMaximized: false,
-        zIndex: isModal ? 9999 : state.windows.order.length + 10,
-        position,
-        size: { width: defaultWidth, height: defaultHeight },
-        activePage: initialPage || (hub.pages ? hub.pages[0] : undefined),
-        ...extraState // Merge noteData, navigationState, etc.
-      };
+  const appID = win.hubId;
+  const hasOtherWindows = Object.values(remainingByID).some(w => w.hubId === appID);
+  const newRunning = hasOtherWindows ? state.dock.runningAppIDs : state.dock.runningAppIDs.filter(id => id !== appID);
 
-      const newByID = { ...state.windows.byID, [newWindowID]: newWindow };
-      const newOrder = [...state.windows.order, newWindowID];
-      
-      // Update running apps
-      const newRunning = state.dock.runningAppIDs.includes(appID) ? state.dock.runningAppIDs : [...state.dock.runningAppIDs, appID];
+  let newOverlays = state.system.overlays;
+  if (state.system.overlays.activeModalWindowID === windowID) {
+    newOverlays = { blurActive: false, activeModalWindowID: null };
+  }
 
-      // Overlay logic
-      let newOverlays = state.system.overlays;
-      if (isModal) {
-        newOverlays = { blurActive: true, activeModalWindowID: newWindowID };
-      }
+  let newState = {
+    ...state,
+    windows: { byID: remainingByID, order: newOrder, focusedWindowID: newFocused },
+    dock: { ...state.dock, runningAppIDs: newRunning },
+    system: { ...state.system, overlays: newOverlays }
+  };
+  return logActivity(newState, 'System', `Closed ${win.title}`, 'WindowManager');
+};
 
-      newState = {
-        ...newState,
-        windows: { byID: newByID, order: newOrder, focusedWindowID: newWindowID },
-        dock: { ...state.dock, runningAppIDs: newRunning },
-        system: { ...state.system, overlays: newOverlays },
-        logging: { ...newState.logging, activities: logActivity('System', `Opened ${hub.name}`, 'WindowManager') }
-      };
-      break;
+const handleWindowMinimize = (state: OSState, payload: any): OSState => {
+  const { windowID } = payload;
+  const win = state.windows.byID[windowID];
+  if (!win) return state;
+  
+  const newState = {
+    ...state,
+    windows: { 
+       ...state.windows, 
+       byID: { ...state.windows.byID, [windowID]: { ...win, isMinimized: true } },
+       focusedWindowID: state.windows.focusedWindowID === windowID ? null : state.windows.focusedWindowID
     }
+  };
+  return logActivity(newState, 'System', `Minimized ${win.title}`, 'WindowManager');
+};
 
-    case 'WINDOW_CLOSE': {
-      const { windowID } = event.payload;
-      const win = state.windows.byID[windowID];
-      if (!win) return state;
+const handleWindowRestore = (state: OSState, payload: any): OSState => {
+  const { windowID } = payload;
+  const win = state.windows.byID[windowID];
+  if (!win) return state;
 
-      const { [windowID]: _, ...remainingByID } = state.windows.byID;
-      const newOrder = state.windows.order.filter(id => id !== windowID);
-      const newFocused = newOrder.length > 0 ? newOrder[newOrder.length - 1] : null;
-
-      // Check if app is still running
-      const appID = win.hubId;
-      const hasOtherWindows = Object.values(remainingByID).some(w => w.hubId === appID);
-      const newRunning = hasOtherWindows ? state.dock.runningAppIDs : state.dock.runningAppIDs.filter(id => id !== appID);
-
-      // Overlay logic
-      let newOverlays = state.system.overlays;
-      if (state.system.overlays.activeModalWindowID === windowID) {
-        newOverlays = { blurActive: false, activeModalWindowID: null };
-      }
-
-      newState = {
-        ...newState,
-        windows: { byID: remainingByID, order: newOrder, focusedWindowID: newFocused },
-        dock: { ...state.dock, runningAppIDs: newRunning },
-        system: { ...state.system, overlays: newOverlays },
-        logging: { ...newState.logging, activities: logActivity('System', `Closed ${win.title}`, 'WindowManager') }
-      };
-      break;
+  const newOrder = [...state.windows.order.filter(id => id !== windowID), windowID];
+  const newState = {
+    ...state,
+    windows: { 
+       ...state.windows, 
+       byID: { ...state.windows.byID, [windowID]: { ...win, isMinimized: false } },
+       order: newOrder,
+       focusedWindowID: windowID
     }
+  };
+  return logActivity(newState, 'System', `Restored ${win.title}`, 'WindowManager');
+};
 
-    case 'WINDOW_MINIMIZE': {
-      const { windowID } = event.payload;
-      const win = state.windows.byID[windowID];
-      if (!win) return state;
+const handleWindowFocus = (state: OSState, payload: any): OSState => {
+  const { windowID } = payload;
+  if (!state.windows.byID[windowID]) return state;
+  
+  // If already focused and top, do nothing
+  if (state.windows.focusedWindowID === windowID && state.windows.order[state.windows.order.length - 1] === windowID) return state;
 
-      const updatedWin = { ...win, isMinimized: true };
-      // Remove focus if minimized
-      const newFocused = state.windows.focusedWindowID === windowID ? null : state.windows.focusedWindowID;
+  const newOrder = [...state.windows.order.filter(id => id !== windowID), windowID];
+  return {
+    ...state,
+    windows: { ...state.windows, order: newOrder, focusedWindowID: windowID }
+  };
+};
 
-      newState = {
-        ...newState,
-        windows: { 
-          ...state.windows, 
-          byID: { ...state.windows.byID, [windowID]: updatedWin },
-          focusedWindowID: newFocused
-        },
-        logging: { ...newState.logging, activities: logActivity('System', `Minimized ${win.title}`, 'WindowManager') }
-      };
-      break;
-    }
+const handleWindowMaximizeToggle = (state: OSState, payload: any): OSState => {
+  const { windowID } = payload;
+  const win = state.windows.byID[windowID];
+  if (!win) return state;
 
-    case 'WINDOW_RESTORE': {
-      const { windowID } = event.payload;
-      const win = state.windows.byID[windowID];
-      if (!win) return state;
+  const isMax = !win.isMaximized;
+  const updatedWin = { 
+     ...win, 
+     isMaximized: isMax,
+     lastBounds: isMax ? { x: win.position.x, y: win.position.y, width: win.size?.width || 800, height: win.size?.height || 600 } : win.lastBounds
+  };
 
-      const updatedWin = { ...win, isMinimized: false };
-      // Move to top
-      const newOrder = [...state.windows.order.filter(id => id !== windowID), windowID];
+  const newState = {
+     ...state,
+     windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: updatedWin } }
+  };
+  return logActivity(newState, 'System', isMax ? `Maximized ${win.title}` : `Restored ${win.title}`, 'WindowManager');
+};
 
-      newState = {
-        ...newState,
-        windows: { 
-          ...state.windows, 
-          byID: { ...state.windows.byID, [windowID]: updatedWin },
-          order: newOrder,
-          focusedWindowID: windowID
-        },
-        logging: { ...newState.logging, activities: logActivity('System', `Restored ${win.title}`, 'WindowManager') }
-      };
-      break;
-    }
+const handleWindowDrag = (state: OSState, payload: any): OSState => {
+  const { windowID, x, y } = payload;
+  const win = state.windows.byID[windowID];
+  if (!win || win.isMaximized) return state;
+  return {
+    ...state,
+    windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: { ...win, position: { x, y } } } }
+  };
+};
 
-    case 'WINDOW_FOCUS': {
-      const { windowID } = event.payload;
-      if (!state.windows.byID[windowID]) return state;
+// Dock Handlers
+const handleDockIconClick = (state: OSState, payload: any): OSState => {
+  const { appID } = payload;
+  const openWindows = Object.values(state.windows.byID).filter(w => w.hubId === appID);
+  
+  if (openWindows.length === 0) {
+     return handleWindowOpen(state, { appID });
+  }
+  
+  // If minimized exists, restore the last one
+  const minimized = openWindows.filter(w => w.isMinimized);
+  if (minimized.length > 0) {
+     const lastMinimized = minimized[minimized.length - 1];
+     let s = handleWindowRestore(state, { windowID: lastMinimized.id });
+     return handleWindowFocus(s, { windowID: lastMinimized.id });
+  }
 
-      const newOrder = [...state.windows.order.filter(id => id !== windowID), windowID];
-      newState = {
-        ...newState,
-        windows: { ...state.windows, order: newOrder, focusedWindowID: windowID }
-      };
-      break;
-    }
+  // Else focus the last active one
+  const lastActive = openWindows[openWindows.length - 1];
+  return handleWindowFocus(state, { windowID: lastActive.id });
+};
 
-    case 'WINDOW_MAXIMIZE_TOGGLE': {
-      const { windowID } = event.payload;
-      const win = state.windows.byID[windowID];
-      if (!win) return state;
+const handleDockPinToggle = (state: OSState, payload: any): OSState => {
+  const { appID } = payload;
+  const isPinned = state.dock.pinnedAppIDs.includes(appID);
+  const newPinned = isPinned ? state.dock.pinnedAppIDs.filter(id => id !== appID) : [...state.dock.pinnedAppIDs, appID];
+  
+  const newState = { ...state, dock: { ...state.dock, pinnedAppIDs: newPinned } };
+  return logActivity(newState, 'System', isPinned ? `Unpinned ${appID}` : `Pinned ${appID}`, 'Dock');
+};
 
-      const isMax = !win.isMaximized;
-      const updatedWin = { 
-        ...win, 
-        isMaximized: isMax,
-        lastBounds: isMax ? { x: win.position.x, y: win.position.y, width: win.size?.width || 800, height: win.size?.height || 600 } : win.lastBounds
-        // Note: Actual resizing logic usually happens in render or drag handler, state just stores flags
-      };
+// Data Handlers
+const handleNoteSave = (state: OSState, payload: any): OSState => {
+  const { mode, noteID, title, body, linkedClientID } = payload;
+  const id = noteID || generateID('note');
+  
+  const newNote: Note = {
+    id,
+    title: title || "Untitled",
+    body,
+    summary: body.substring(0, 50) + '...',
+    type: linkedClientID ? 'client' : 'general',
+    linkedClient: linkedClientID,
+    date: nowISO(),
+    createdAt: mode === 'create' ? nowISO() : (state.data.notes[id]?.createdAt || nowISO()),
+    updatedAt: nowISO()
+  };
 
-      newState = {
-        ...newState,
-        windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: updatedWin } },
-        logging: { ...newState.logging, activities: logActivity('System', isMax ? `Maximized ${win.title}` : `Restored ${win.title}`, 'WindowManager') }
-      };
-      break;
-    }
-    
-    case 'WINDOW_DRAG': {
-      const { windowID, x, y } = event.payload;
-      const win = state.windows.byID[windowID];
-      if (!win || win.isMaximized) return state;
-      
-      const updatedWin = { ...win, position: { x, y } };
-      newState = {
-         ...newState,
-         windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: updatedWin } }
-      };
-      break;
-    }
+  let newClients = state.data.clients;
+  if (linkedClientID && state.data.clients[linkedClientID]) {
+    const client = state.data.clients[linkedClientID];
+    const logEntry = { date: nowISO(), type: 'Note', summary: title, nextSteps: '' };
+    newClients = { 
+       ...newClients, 
+       [linkedClientID]: { 
+          ...client, 
+          fullProfile: { ...client.fullProfile, contactLog: [logEntry, ...(client.fullProfile.contactLog || [])] } 
+       } 
+    };
+  }
 
-    // --- Dock Events ---
-    case 'DOCK_PIN_TOGGLE': {
-      const { appID } = event.payload;
-      const isPinned = state.dock.pinnedAppIDs.includes(appID);
-      const newPinned = isPinned 
-        ? state.dock.pinnedAppIDs.filter(id => id !== appID)
-        : [...state.dock.pinnedAppIDs, appID];
-      
-      newState = {
-        ...newState,
-        dock: { ...state.dock, pinnedAppIDs: newPinned },
-        logging: { ...newState.logging, activities: logActivity('System', isPinned ? `Unpinned ${appID}` : `Pinned ${appID}`, 'Dock') }
-      };
-      break;
-    }
-
-    // --- Sidebar / Navigation Events ---
-    case 'SIDEBAR_PAGE_CHANGE': {
-      const { windowID, newPage } = event.payload;
-      const win = state.windows.byID[windowID];
-      if (!win) return state;
-
-      const updatedWin = { ...win, activePage: newPage };
-      newState = {
-        ...newState,
-        windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: updatedWin } },
-        logging: { ...newState.logging, activities: logActivity('Navigation', `Navigated to ${newPage}`, win.title) }
-      };
-      break;
-    }
-
-    case 'NAVIGATE_INTERNAL': {
-      // For things like selecting a client in ClientHub
-      const { windowID, state: navState } = event.payload;
-      const win = state.windows.byID[windowID];
-      if (!win) return state;
-
-      const updatedWin = { ...win, navigationState: { ...win.navigationState, ...navState } };
-      newState = {
-         ...newState,
-         windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: updatedWin } }
-      };
-      break;
-    }
-
-    // --- Data Events ---
-    case 'NOTE_SAVE': {
-      const { mode, noteID, title, body, linkedClientID } = event.payload;
-      const id = noteID || generateID('note');
-      const now = new Date().toISOString();
-      
-      const newNote: Note = {
-        id,
-        title: title || "Untitled",
-        body,
-        summary: body.substring(0, 50) + '...',
-        type: linkedClientID ? 'client' : 'general',
-        linkedClient: linkedClientID,
-        date: now,
-        createdAt: mode === 'create' ? now : (state.data.notes[id]?.createdAt || now),
-        updatedAt: now
-      };
-
-      const newNotes = { ...state.data.notes, [id]: newNote };
-      
-      // Update Client Log if linked
-      let newClients = state.data.clients;
-      if (linkedClientID && state.data.clients[linkedClientID]) {
-        const client = state.data.clients[linkedClientID];
-        // We can either push to contactLog or rely on derived views. 
-        // Prompt says "Add the note to the client's Contact Log".
-        const logEntry = { date: now, type: 'Note', summary: title, nextSteps: '' };
-        const updatedClient = { 
-           ...client, 
-           fullProfile: { 
-              ...client.fullProfile, 
-              contactLog: [logEntry, ...(client.fullProfile.contactLog || [])] 
-           } 
-        };
-        newClients = { ...newClients, [linkedClientID]: updatedClient };
-      }
-
-      newState = {
-        ...newState,
-        data: { ...state.data, notes: newNotes, clients: newClients },
-        logging: { ...newState.logging, activities: logActivity('Note', `${mode === 'create' ? 'Created' : 'Updated'} note`, title) }
-      };
-      break;
-    }
-
-    case 'CLIENT_UPDATE': {
-       const { client } = event.payload;
-       newState = {
-          ...newState,
-          data: { ...state.data, clients: { ...state.data.clients, [client.id]: client } },
-          logging: { ...newState.logging, activities: logActivity('Data', `Updated client ${client.preferredName}`, 'ClientHub') }
-       };
-       break;
-    }
-
-    case 'CLIENT_CREATE': {
-       const { client } = event.payload;
-       newState = {
-          ...newState,
-          data: { ...state.data, clients: { ...state.data.clients, [client.id]: client } },
-          logging: { ...newState.logging, activities: logActivity('Data', `Created client ${client.preferredName}`, 'ClientHub') }
-       };
-       break;
-    }
-
-    case 'TASK_SAVE': {
-       const { task } = event.payload;
-       const exists = !!state.data.tasks[task.id];
-       newState = {
-          ...newState,
-          data: { ...state.data, tasks: { ...state.data.tasks, [task.id]: task } },
-          logging: { ...newState.logging, activities: logActivity('Task', `${exists ? 'Updated' : 'Created'} task ${task.title}`, 'CommandCenter') }
-       };
-       break;
-    }
-
-    case 'TASK_DELETE': {
-       const { taskID } = event.payload;
-       const { [taskID]: _, ...remainingTasks } = state.data.tasks;
-       newState = {
-          ...newState,
-          data: { ...state.data, tasks: remainingTasks },
-          logging: { ...newState.logging, activities: logActivity('Task', 'Deleted task', 'CommandCenter') }
-       };
-       break;
-    }
-
-    case 'PARTNER_SAVE': {
-      const { partner } = event.payload;
-      newState = {
-        ...newState,
-        data: { ...state.data, partners: { ...state.data.partners, [partner.id]: partner } }
-      };
-      break;
-    }
-
-    case 'PARTNER_DELETE': {
-      const { partnerID } = event.payload;
-      const { [partnerID]: _, ...remaining } = state.data.partners;
-      newState = {
-         ...newState,
-         data: { ...state.data, partners: remaining }
-      };
-      break;
-    }
-
-    // --- System Events ---
-    case 'SYSTEM_LAUNCHER_TOGGLE': {
-       newState = { ...newState, system: { ...state.system, launcherOpen: !state.system.launcherOpen } };
-       break;
-    }
-    case 'SYSTEM_CHAT_TOGGLE': {
-       newState = { ...newState, system: { ...state.system, chatOpen: !state.system.chatOpen } };
-       break;
-    }
-    case 'SYSTEM_WEEKLY_NOTES': {
-       const { notes } = event.payload;
-       newState = { ...newState, system: { ...state.system, weeklyNotes: notes } };
-       break;
-    }
-
-    default:
-      console.warn(`Unknown event type: ${event.type}`);
-      return state;
+  let newState = {
+    ...state,
+    data: { ...state.data, notes: { ...state.data.notes, [id]: newNote }, clients: newClients }
+  };
+  newState = logActivity(newState, 'Note', `${mode === 'create' ? 'Created' : 'Updated'} note`, title);
+  
+  // Close the window if windowID is passed (it should be)
+  if (payload.windowID) {
+     return handleWindowClose(newState, { windowID: payload.windowID });
   }
   return newState;
+};
+
+const handleClientCreateFromIntake = (state: OSState, payload: any): OSState => {
+  const { intakeID, clientData } = payload; // Assuming clientData is passed or we look up intake
+  // Since we don't have full intake persistence in this demo, accepting clientData directly
+  const client: Client = {
+      ...clientData,
+      id: generateID('client'),
+      status: 'Active',
+      lastUpdated: nowISO()
+  };
+
+  let newState = {
+     ...state,
+     data: { ...state.data, clients: { ...state.data.clients, [client.id]: client } }
+  };
+  newState = logActivity(newState, 'Intake', 'Client created from intake', client.preferredName);
+  // Open client profile
+  return handleWindowOpen(newState, { appID: 'clients', extraState: { navigationState: { selectedClientId: client.id } } });
+};
+
+const handleIntakeApprove = (state: OSState, payload: any): OSState => {
+   const { clientData, windowID } = payload;
+   let s = handleClientCreateFromIntake(state, { clientData });
+   return handleWindowClose(s, { windowID });
+};
+
+// --- Reducer Routing Table ---
+
+const ROUTES: Record<string, (state: OSState, payload: any) => OSState> = {
+  WINDOW_OPEN: handleWindowOpen,
+  WINDOW_CLOSE: handleWindowClose,
+  WINDOW_MINIMIZE: handleWindowMinimize,
+  WINDOW_RESTORE: handleWindowRestore,
+  WINDOW_FOCUS: handleWindowFocus,
+  WINDOW_MAXIMIZE_TOGGLE: handleWindowMaximizeToggle,
+  WINDOW_DRAG: handleWindowDrag,
+  
+  DOCK_ICON_CLICK: handleDockIconClick,
+  DOCK_PIN_TOGGLE: handleDockPinToggle,
+  
+  NOTE_SAVE: handleNoteSave,
+  
+  INTAKE_APPROVE: handleIntakeApprove,
+  
+  SIDEBAR_PAGE_CHANGE: (state, { windowID, newPage }) => {
+     const win = state.windows.byID[windowID];
+     if (!win) return state;
+     return {
+        ...state,
+        windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: { ...win, activePage: newPage } } }
+     };
+  },
+
+  NAVIGATE_INTERNAL: (state, { windowID, state: navState }) => {
+     const win = state.windows.byID[windowID];
+     if (!win) return state;
+     return {
+        ...state,
+        windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: { ...win, navigationState: { ...win.navigationState, ...navState } } } }
+     };
+  },
+
+  CLIENT_UPDATE: (state, { client }) => logActivity({
+     ...state,
+     data: { ...state.data, clients: { ...state.data.clients, [client.id]: client } }
+  }, 'Data', `Updated client ${client.preferredName}`),
+
+  TASK_SAVE: (state, { task }) => logActivity({
+     ...state,
+     data: { ...state.data, tasks: { ...state.data.tasks, [task.id]: task } }
+  }, 'Task', `Saved task ${task.title}`),
+
+  SYSTEM_LAUNCHER_TOGGLE: (state) => ({ ...state, system: { ...state.system, launcherOpen: !state.system.launcherOpen } }),
+  SYSTEM_CHAT_TOGGLE: (state) => ({ ...state, system: { ...state.system, chatOpen: !state.system.chatOpen } }),
+  SYSTEM_WEEKLY_NOTES: (state, { notes }) => ({ ...state, system: { ...state.system, weeklyNotes: notes } }),
+};
+
+function osReducer(state: OSState, event: OSEvent): OSState {
+  const handler = ROUTES[event.type];
+  if (handler) {
+     return handler(state, event.payload);
+  }
+  console.warn(`No handler for event: ${event.type}`);
+  return state;
 }
 
 // --- Components ---
@@ -484,9 +431,102 @@ const NoteEditorContent = ({ linkedClient, clients, onSave, onCancel }: any) => 
   );
 };
 
+// --- Intake Wizard as Window Content ---
+const IntakeWizardContent = ({ onClose, onApprove }: any) => {
+   const [step, setStep] = useState(0);
+   const [loading, setLoading] = useState(false);
+   const [messages, setMessages] = useState<ChatMessage[]>([{id: '1', role: 'model', text: "I'll help you create a new client profile. To start, what is the client's preferred name?", timestamp: new Date()}]);
+   const [input, setInput] = useState("");
+   const [clientData, setClientData] = useState<Partial<Client>>({});
+   const [isComplete, setIsComplete] = useState(false);
+
+   const handleSend = async () => {
+      if (!input.trim()) return;
+      const newMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: input, timestamp: new Date() };
+      setMessages(prev => [...prev, newMsg]);
+      setInput("");
+      setLoading(true);
+
+      let responseText = "";
+      
+      if (step === 0) {
+         setClientData(prev => ({ ...prev, preferredName: input }));
+         responseText = `Got it. Let's create a profile for ${input}. What is their legal name?`;
+         setStep(1);
+      } else if (step === 1) {
+         setClientData(prev => ({ ...prev, legalName: input }));
+         responseText = "Thanks. What is their current housing status? (e.g., Stable, Shelter, Unstable)";
+         setStep(2);
+      } else if (step === 2) {
+         setClientData(prev => ({ ...prev, fullProfile: { ...prev.fullProfile, housingStatus: input } }));
+         responseText = "Understood. Finally, briefly describe their primary needs.";
+         setStep(3);
+      } else if (step === 3) {
+         const finalClient = {
+            preferredName: clientData.preferredName || "Unknown",
+            legalName: clientData.legalName,
+            fullProfile: {
+               ...DEFAULT_CLIENT.fullProfile,
+               housingStatus: (clientData.fullProfile as any)?.housingStatus,
+               primaryNeeds: { ...DEFAULT_CLIENT.fullProfile.primaryNeeds, notes: input }
+            }
+         };
+         setClientData(finalClient);
+         setIsComplete(true);
+         setLoading(false);
+         return;
+      }
+
+      setTimeout(() => {
+         setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: responseText, timestamp: new Date() }]);
+         setLoading(false);
+      }, 600);
+   };
+
+   if (isComplete) {
+      return (
+         <div className="flex flex-col h-full bg-white p-8 items-center justify-center text-center">
+            <CheckCircle2 size={64} className="text-teal-500 mb-4" />
+            <h2 className="text-2xl font-bold mb-2">Intake Complete</h2>
+            <p className="text-gray-600 mb-8 max-w-md">The intake session is finished. Review the summary below or approve to create the client.</p>
+            <div className="flex gap-4">
+               <button onClick={onClose} className="px-6 py-3 rounded-xl border border-gray-300 font-medium hover:bg-gray-50">Cancel</button>
+               <button onClick={() => onClose()} className="px-6 py-3 rounded-xl border border-teal-600 text-teal-600 font-medium hover:bg-teal-50">Edit Form</button>
+               <button onClick={() => onApprove(clientData)} className="px-6 py-3 rounded-xl bg-teal-600 text-white font-bold hover:bg-teal-700 shadow-lg">Approve & View Client</button>
+            </div>
+         </div>
+      );
+   }
+
+   return (
+      <div className="flex flex-col h-full bg-white">
+         <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
+            {messages.map(m => (
+               <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] p-3 rounded-xl text-sm ${m.role === 'user' ? 'bg-teal-600 text-white rounded-br-none' : 'bg-white border rounded-bl-none text-gray-800 shadow-sm'}`}>
+                     {m.text}
+                  </div>
+               </div>
+            ))}
+            {loading && <div className="text-xs text-gray-400 animate-pulse">Processing...</div>}
+         </div>
+         <div className="p-3 bg-white border-t flex gap-2">
+            <input 
+               className="flex-1 border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-teal-500"
+               placeholder="Type your answer..."
+               value={input}
+               onChange={e => setInput(e.target.value)}
+               onKeyDown={e => e.key === 'Enter' && handleSend()}
+            />
+            <button onClick={handleSend} className="bg-teal-600 text-white p-2 rounded-lg hover:bg-teal-700"><Send size={20}/></button>
+         </div>
+      </div>
+   );
+};
+
 const OSWindow = ({ win, dispatch, isActive, state }: { win: AppWindow, dispatch: React.Dispatch<OSEvent>, isActive: boolean, state: OSState }) => {
   const hub = HUBS.find(h => h.id === win.hubId);
-  const isNoteEditor = win.hubId === 'note-editor';
+  const isModal = win.hubId === 'note-editor' || win.hubId === 'intake-wizard';
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -519,61 +559,35 @@ const OSWindow = ({ win, dispatch, isActive, state }: { win: AppWindow, dispatch
     ? { top: 32, left: 0, width: '100%', height: 'calc(100vh - 4rem)', zIndex: isActive ? 9000 : win.zIndex }
     : { top: win.position.y, left: win.position.x, width: win.size?.width, height: win.size?.height, zIndex: isActive ? 9000 : win.zIndex };
 
-  if (isNoteEditor) {
+  // --- Modal Window Shell ---
+  if (isModal) {
      return (
        <div ref={windowRef} className={`fixed bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 ${isActive ? 'ring-2 ring-indigo-200' : ''}`} style={style} onClick={() => dispatch({ type: 'WINDOW_FOCUS', source: 'OSWindow', payload: { windowID: win.id } })}>
-          <div className="h-12 bg-indigo-600 flex items-center justify-between px-4 shrink-0 cursor-move text-white" onMouseDown={handleMouseDown}>
-             <div className="font-semibold flex items-center gap-2"><FileText size={18}/> {win.title}</div>
-             <button onClick={() => dispatch({ type: 'WINDOW_CLOSE', source: 'OSWindow', payload: { windowID: win.id } })} className="hover:text-indigo-200"><X size={20}/></button>
+          <div className={`h-12 ${win.hubId === 'intake-wizard' ? 'bg-teal-600' : 'bg-indigo-600'} flex items-center justify-between px-4 shrink-0 cursor-move text-white`} onMouseDown={handleMouseDown}>
+             <div className="font-semibold flex items-center gap-2">
+               {win.hubId === 'intake-wizard' ? <UserPlus size={18}/> : <FileText size={18}/>} 
+               {win.title}
+             </div>
+             <button onClick={() => dispatch({ type: 'WINDOW_CLOSE', source: 'OSWindow', payload: { windowID: win.id } })} className="hover:text-white/80"><X size={20}/></button>
           </div>
-          <NoteEditorContent 
-             linkedClient={win.noteData?.clientId} 
-             clients={Object.values(state.data.clients)} 
-             onSave={(n: any) => dispatch({ type: 'NOTE_SAVE', source: 'NoteEditor', payload: { mode: 'create', title: n.title, body: n.body, linkedClientID: n.linkedClient } })} 
-             onCancel={() => dispatch({ type: 'WINDOW_CLOSE', source: 'NoteEditor', payload: { windowID: win.id } })} 
-          />
+          {win.hubId === 'note-editor' ? (
+             <NoteEditorContent 
+                linkedClient={win.noteData?.clientId} 
+                clients={Object.values(state.data.clients)} 
+                onSave={(n: any) => dispatch({ type: 'NOTE_SAVE', source: 'NoteEditor', payload: { mode: 'create', title: n.title, body: n.body, linkedClientID: n.linkedClient, windowID: win.id } })} 
+                onCancel={() => dispatch({ type: 'WINDOW_CLOSE', source: 'NoteEditor', payload: { windowID: win.id } })} 
+             />
+          ) : (
+             <IntakeWizardContent 
+                onClose={() => dispatch({ type: 'WINDOW_CLOSE', source: 'IntakeWizard', payload: { windowID: win.id } })}
+                onApprove={(clientData: any) => dispatch({ type: 'INTAKE_APPROVE', source: 'IntakeWizard', payload: { clientData, windowID: win.id } })}
+             />
+          )}
        </div>
      );
   }
 
-  // --- Content Renderers ---
-  
-  const renderContent = () => {
-     if (win.hubId === 'clients') {
-        return <ClientHub 
-                  clients={Object.values(state.data.clients)} 
-                  notes={Object.values(state.data.notes)}
-                  activePage={win.activePage}
-                  navigationState={win.navigationState || {}}
-                  dispatch={dispatch}
-                  winID={win.id}
-               />;
-     }
-     if (win.hubId === 'priorities') {
-        return <PrioritiesView tasks={Object.values(state.data.tasks)} dispatch={dispatch} />;
-     }
-     if (win.hubId === 'urgent') {
-        return <UrgentView tasks={Object.values(state.data.tasks)} clients={Object.values(state.data.clients)} dispatch={dispatch} />;
-     }
-     if (win.hubId === 'weekly') {
-        return <WeeklyView tasks={Object.values(state.data.tasks)} weeklyNotes={state.system.weeklyNotes} dispatch={dispatch} />;
-     }
-     if (win.hubId === 'activity-log') {
-        return <ActivityLogHub activities={state.logging.activities} />;
-     }
-     if (win.hubId === 'partnerships') {
-        return <PartnershipsHub partners={Object.values(state.data.partners)} dispatch={dispatch} />;
-     }
-
-     return (
-        <div className="p-8 text-center text-gray-500">
-           <h2 className="text-xl font-bold mb-2">{hub?.name || win.title}</h2>
-           <p>{hub?.description}</p>
-           <p className="mt-4 text-sm">Active Page: {win.activePage}</p>
-        </div>
-     );
-  };
-
+  // --- Standard Window Shell ---
   return (
     <div ref={windowRef} className={`fixed bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 transition-all duration-75`} style={style} onClick={() => dispatch({ type: 'WINDOW_FOCUS', source: 'OSWindow', payload: { windowID: win.id } })}>
        <div className={`h-10 ${hub?.color || 'bg-gray-700'} flex items-center justify-between px-3 shrink-0 cursor-move`} onMouseDown={handleMouseDown}>
@@ -601,7 +615,15 @@ const OSWindow = ({ win, dispatch, isActive, state }: { win: AppWindow, dispatch
              </div>
           )}
           <div className="flex-1 overflow-y-auto">
-             {renderContent()}
+             {(() => {
+                 if (win.hubId === 'clients') return <ClientHub clients={Object.values(state.data.clients)} notes={Object.values(state.data.notes)} activePage={win.activePage} navigationState={win.navigationState || {}} dispatch={dispatch} winID={win.id} />;
+                 if (win.hubId === 'priorities') return <PrioritiesView tasks={Object.values(state.data.tasks)} dispatch={dispatch} />;
+                 if (win.hubId === 'urgent') return <UrgentView tasks={Object.values(state.data.tasks)} clients={Object.values(state.data.clients)} dispatch={dispatch} />;
+                 if (win.hubId === 'weekly') return <WeeklyView tasks={Object.values(state.data.tasks)} weeklyNotes={state.system.weeklyNotes} dispatch={dispatch} />;
+                 if (win.hubId === 'activity-log') return <ActivityLogHub activities={state.logging.activities} />;
+                 if (win.hubId === 'partnerships') return <PartnershipsHub partners={Object.values(state.data.partners)} dispatch={dispatch} />;
+                 return <div className="p-8 text-center text-gray-500"><h2 className="text-xl font-bold mb-2">{hub?.name}</h2><p>{hub?.description}</p></div>;
+             })()}
           </div>
        </div>
     </div>
@@ -657,7 +679,6 @@ const WeeklyView = ({ tasks, weeklyNotes, dispatch }: { tasks: Task[], weeklyNot
          {[0,1,2,3,4].map(i => (
             <div key={i} className="border rounded-lg p-2 bg-white">
                <div className="text-xs font-bold text-gray-400 uppercase mb-2">Day {i+1}</div>
-               {/* Simplified logic for day tasks */}
             </div>
          ))}
       </div>
@@ -701,7 +722,6 @@ const ClientHub = ({ clients, notes, activePage, navigationState, dispatch, winI
    const isEditing = navigationState?.isEditing || false;
    const [editForm, setEditForm] = useState(selectedClient?.fullProfile || {});
 
-   // Effect to sync edit form when selection changes
    useEffect(() => {
       if(selectedClient) setEditForm(selectedClient.fullProfile);
    }, [selectedClient]);
@@ -754,7 +774,6 @@ const ClientHub = ({ clients, notes, activePage, navigationState, dispatch, winI
                   <div className="space-y-4">
                      <div><label className="text-xs font-bold text-gray-500">Legal Name</label><input className="w-full border p-2 rounded" value={editForm.legalName || ''} onChange={e => setEditForm({...editForm, legalName: e.target.value})} /></div>
                      <div><label className="text-xs font-bold text-gray-500">Phone</label><input className="w-full border p-2 rounded" value={editForm.phone || ''} onChange={e => setEditForm({...editForm, phone: e.target.value})} /></div>
-                     {/* More fields would go here matching previous implementation */}
                   </div>
                ) : (
                   <div className="grid grid-cols-2 gap-6">
@@ -785,7 +804,7 @@ const ClientHub = ({ clients, notes, activePage, navigationState, dispatch, winI
       <div className="p-6 h-full flex flex-col">
          <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold">Active Clients</h2>
-            <button onClick={() => dispatch({ type: 'SYSTEM_MODAL_OPEN', source: 'ClientHub', payload: { type: 'INTAKE_WIZARD' } })} className="bg-teal-600 text-white px-4 py-2 rounded-lg flex gap-2"><UserPlus size={18}/> New Intake</button>
+            <button onClick={() => dispatch({ type: 'WINDOW_OPEN', source: 'ClientHub', payload: { appID: 'intake-wizard' } })} className="bg-teal-600 text-white px-4 py-2 rounded-lg flex gap-2"><UserPlus size={18}/> New Intake</button>
          </div>
          <input className="w-full border rounded-lg p-2 mb-4" placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
          <div className="divide-y border rounded-xl overflow-hidden">
@@ -818,8 +837,7 @@ const PartnershipsHub = ({ partners, dispatch }: { partners: Partner[], dispatch
    </div>
 );
 
-// --- Modals (Intake, Task) ---
-// These sit outside the window manager loop usually, but here handled by conditional rendering in Desktop
+// --- Widgets & Overlays ---
 
 const WidgetArea = ({ notifications, onOpenUrgent }: any) => (
   <div className="absolute top-12 right-4 w-80 space-y-4 pointer-events-none z-10">
@@ -854,7 +872,6 @@ const WidgetArea = ({ notifications, onOpenUrgent }: any) => (
 const MinimizedWidgets = ({ windows, onRestore }: any) => {
   const minimized = windows.filter((w: AppWindow) => w.isMinimized);
   if (minimized.length === 0) return null;
-  
   return (
     <div className="absolute bottom-24 right-4 flex flex-col gap-2 items-end z-0">
       {minimized.map((w: AppWindow) => {
@@ -870,95 +887,6 @@ const MinimizedWidgets = ({ windows, onRestore }: any) => {
       })}
     </div>
   );
-};
-
-const QuickAddClientModal = ({ onClose, onClientCreated }: any) => {
-   const [step, setStep] = useState(0);
-   const [loading, setLoading] = useState(false);
-   const [messages, setMessages] = useState<ChatMessage[]>([{id: '1', role: 'model', text: "I'll help you create a new client profile. To start, what is the client's preferred name?", timestamp: new Date()}]);
-   const [input, setInput] = useState("");
-   const [clientData, setClientData] = useState<Partial<Client>>({});
-
-   const handleSend = async () => {
-      if (!input.trim()) return;
-      const newMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: input, timestamp: new Date() };
-      setMessages(prev => [...prev, newMsg]);
-      setInput("");
-      setLoading(true);
-
-      // Simple state machine for demo purposes, in real app this would use the Context Prompt with AI
-      // Simulating AI extraction for brevity in this fix
-      let responseText = "";
-      
-      if (step === 0) {
-         setClientData(prev => ({ ...prev, preferredName: input }));
-         responseText = `Got it. Let's create a profile for ${input}. What is their legal name?`;
-         setStep(1);
-      } else if (step === 1) {
-         setClientData(prev => ({ ...prev, legalName: input }));
-         responseText = "Thanks. What is their current housing status? (e.g., Stable, Shelter, Unstable)";
-         setStep(2);
-      } else if (step === 2) {
-         setClientData(prev => ({ ...prev, fullProfile: { ...prev.fullProfile, housingStatus: input } }));
-         responseText = "Understood. Finally, briefly describe their primary needs.";
-         setStep(3);
-      } else if (step === 3) {
-         // Finalize
-         const finalClient: Client = {
-            id: generateID('client'),
-            preferredName: clientData.preferredName || "Unknown",
-            legalName: clientData.legalName,
-            status: 'Active',
-            intakeDate: new Date().toISOString(),
-            lastUpdated: new Date().toISOString(),
-            fullProfile: {
-               ...DEFAULT_CLIENT.fullProfile,
-               housingStatus: (clientData.fullProfile as any)?.housingStatus,
-               primaryNeeds: { ...DEFAULT_CLIENT.fullProfile.primaryNeeds, notes: input }
-            }
-         };
-         onClientCreated(finalClient);
-         onClose();
-         return;
-      }
-
-      setTimeout(() => {
-         setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: responseText, timestamp: new Date() }]);
-         setLoading(false);
-      }, 600);
-   };
-
-   return (
-      <div className="fixed inset-0 flex items-center justify-center z-[100]">
-         <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-         <div className="bg-white rounded-xl shadow-2xl w-[500px] h-[600px] flex flex-col relative z-10 overflow-hidden">
-            <div className="bg-teal-600 p-4 text-white font-bold flex justify-between items-center">
-               <span>New Client Intake</span>
-               <button onClick={onClose}><X size={20}/></button>
-            </div>
-            <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
-               {messages.map(m => (
-                  <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                     <div className={`max-w-[80%] p-3 rounded-xl text-sm ${m.role === 'user' ? 'bg-teal-600 text-white rounded-br-none' : 'bg-white border rounded-bl-none text-gray-800 shadow-sm'}`}>
-                        {m.text}
-                     </div>
-                  </div>
-               ))}
-               {loading && <div className="text-xs text-gray-400 animate-pulse">Processing...</div>}
-            </div>
-            <div className="p-3 bg-white border-t flex gap-2">
-               <input 
-                  className="flex-1 border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-teal-500"
-                  placeholder="Type your answer..."
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSend()}
-               />
-               <button onClick={handleSend} className="bg-teal-600 text-white p-2 rounded-lg hover:bg-teal-700"><Send size={20}/></button>
-            </div>
-         </div>
-      </div>
-   );
 };
 
 const TaskModal = ({ onClose, clients, onSave }: any) => {
@@ -1001,8 +929,8 @@ const TaskModal = ({ onClose, clients, onSave }: any) => {
                         priority, 
                         linkedClient: linkedClient || undefined, 
                         completed: false, 
-                        createdAt: new Date().toISOString(), 
-                        updatedAt: new Date().toISOString() 
+                        createdAt: nowISO(), 
+                        updatedAt: nowISO() 
                      });
                      onClose();
                   }} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Save Task</button>
@@ -1033,7 +961,6 @@ const Launcher = ({ isOpen, onClose, onOpenApp }: any) => {
 };
 
 const ChatOverlay = ({ isOpen, onClose, messages, input, setInput, onSend, isLoading }: any) => {
-   // Local state for chat handling if props are minimal
    const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
    const [localInput, setLocalInput] = useState('');
    const [isProcessing, setIsProcessing] = useState(false);
@@ -1097,43 +1024,38 @@ const Shelf = ({ windows, activeId, onRestore, onMinimize, onToggleLauncher, lau
          </button>
          <div className="w-px h-8 bg-gray-300 mx-1" />
          
-         {/* Pinned & Running Apps */}
          {pinnedApps.map((appID: string) => {
             const hub = HUBS.find(h => h.id === appID);
             if (!hub) return null;
-            // Check if running
             const isRunning = windows.some((w: AppWindow) => w.hubId === appID);
             const isActive = isRunning && activeId && windows.find((w: AppWindow) => w.id === activeId)?.hubId === appID;
 
             return (
                <div key={appID} className="relative group">
                   <button 
-                     onClick={() => isRunning ? onRestore(windows.find((w: AppWindow) => w.hubId === appID)?.id) : onOpenApp(hub)}
+                     onClick={() => dispatchEvent(new CustomEvent('DOCK_CLICK_INTERNAL', { detail: { appID } }) as any)} 
                      className={`p-2 rounded-xl transition-all duration-300 relative ${isActive ? 'bg-white shadow-sm -translate-y-2' : 'hover:bg-white/40 hover:-translate-y-1'}`}
+                     onMouseDown={() => onOpenApp(hub)} // Simplified due to wrapper handling
                   >
                      <div className={`w-10 h-10 rounded-lg ${hub.color} flex items-center justify-center text-white shadow-sm`}>
                         <IconComponent name={hub.icon} className="w-6 h-6" />
                      </div>
                   </button>
                   {isRunning && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-gray-600 rounded-full" />}
-                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap">
-                     {hub.name}
-                  </div>
                </div>
             );
          })}
          
          {/* Separator for unpinned running apps */}
-         {windows.some((w: AppWindow) => !pinnedApps.includes(w.hubId)) && <div className="w-px h-8 bg-gray-300 mx-1" />}
+         {windows.some((w: AppWindow) => !pinnedApps.includes(w.hubId) && w.hubId !== 'note-editor' && w.hubId !== 'intake-wizard') && <div className="w-px h-8 bg-gray-300 mx-1" />}
 
-         {/* Rendering unique unpinned running apps */}
-         {[...new Set(windows.map((w: AppWindow) => w.hubId).filter((id: string) => !pinnedApps.includes(id)))].map((appID: any) => {
-             const hub = HUBS.find(h => h.id === appID) || { id: appID, name: 'App', icon: 'Box', color: 'bg-gray-400' };
+         {[...new Set(windows.map((w: AppWindow) => w.hubId).filter((id: string) => !pinnedApps.includes(id) && id !== 'note-editor' && id !== 'intake-wizard'))].map((appID: any) => {
+             const hub = HUBS.find(h => h.id === appID) || { id: appID, name: appID, icon: 'Box', color: 'bg-gray-400' };
              const isActive = activeId && windows.find((w: AppWindow) => w.id === activeId)?.hubId === appID;
              return (
-               <div key={appID as string} className="relative group">
+               <div key={appID} className="relative group">
                   <button 
-                     onClick={() => onRestore(windows.find((w: AppWindow) => w.hubId === appID)?.id)}
+                     onClick={() => onOpenApp({ id: appID })}
                      className={`p-2 rounded-xl transition-all duration-300 relative ${isActive ? 'bg-white shadow-sm -translate-y-2' : 'hover:bg-white/40 hover:-translate-y-1'}`}
                   >
                      <div className={`w-10 h-10 rounded-lg ${hub.color || 'bg-gray-500'} flex items-center justify-center text-white shadow-sm`}>
@@ -1141,9 +1063,6 @@ const Shelf = ({ windows, activeId, onRestore, onMinimize, onToggleLauncher, lau
                      </div>
                   </button>
                   <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-gray-600 rounded-full" />
-                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap">
-                     {hub.name}
-                  </div>
                </div>
              );
          })}
@@ -1162,23 +1081,12 @@ export default function Desktop() {
   const [state, dispatch] = useReducer(osReducer, initialState);
   const [modalState, setModalState] = useState<{type: string, props?: any} | null>(null);
 
-  // Helper dispatch wrapper to handle "macros" if needed
+  // Unified Event Dispatcher Wrapper
   const dispatchEvent = (event: OSEvent) => {
-     if (event.type === 'DOCK_ICON_CLICK') {
-        const { appID } = event.payload;
-        const openWindows = Object.values(state.windows.byID).filter(w => w.hubId === appID);
-        if (openWindows.length === 0) {
-           dispatch({ type: 'WINDOW_OPEN', source: 'Dock', payload: { appID } });
-        } else {
-           const minimized = openWindows.find(w => w.isMinimized);
-           if (minimized) {
-              dispatch({ type: 'WINDOW_RESTORE', source: 'Dock', payload: { windowID: minimized.id } });
-           } else {
-              // Focus the last active one
-              dispatch({ type: 'WINDOW_FOCUS', source: 'Dock', payload: { windowID: openWindows[openWindows.length - 1].id } });
-           }
-        }
-     } else if (event.type === 'SYSTEM_MODAL_OPEN') {
+     // Log to console for dev visibility
+     // console.log(`[Event] ${event.type}`, event.payload);
+     
+     if (event.type === 'SYSTEM_MODAL_OPEN') {
         setModalState({ type: event.payload.type, props: event.payload });
      } else {
         dispatch(event);
@@ -1200,35 +1108,25 @@ export default function Desktop() {
          return <OSWindow key={id} win={win} isActive={state.windows.focusedWindowID === id} dispatch={dispatchEvent} state={state} />;
       })}
 
-      {modalState?.type === 'INTAKE_WIZARD' && (
-         <QuickAddClientModal 
-            onClose={() => setModalState(null)} 
-            onClientCreated={(c: Client) => { 
-               dispatch({ type: 'CLIENT_CREATE', source: 'IntakeWizard', payload: { client: c } });
-               dispatch({ type: 'WINDOW_OPEN', source: 'IntakeWizard', payload: { appID: 'clients', extraState: { navigationState: { selectedClientId: c.id } } } });
-            }} 
-         />
-      )}
-
       {modalState?.type === 'TASK_MODAL' && (
          <TaskModal 
             onClose={() => setModalState(null)} 
             clients={Object.values(state.data.clients)} 
-            onSave={(t: Task) => dispatch({ type: 'TASK_SAVE', source: 'TaskModal', payload: { task: t } })} 
+            onSave={(t: Task) => dispatchEvent({ type: 'TASK_SAVE', source: 'TaskModal', payload: { task: t } })} 
          />
       )}
 
       <Launcher 
          isOpen={state.system.launcherOpen} 
-         onClose={() => dispatch({ type: 'SYSTEM_LAUNCHER_TOGGLE', source: 'Desktop', payload: {} })} 
+         onClose={() => dispatchEvent({ type: 'SYSTEM_LAUNCHER_TOGGLE', source: 'Desktop', payload: {} })} 
          onOpenApp={(hub: Hub) => dispatchEvent({ type: 'WINDOW_OPEN', source: 'Launcher', payload: { appID: hub.id } })} 
       />
       
       <ChatOverlay 
          isOpen={state.system.chatOpen} 
-         onClose={() => dispatch({ type: 'SYSTEM_CHAT_TOGGLE', source: 'Desktop', payload: {} })} 
-         onOpen={() => dispatch({ type: 'SYSTEM_CHAT_TOGGLE', source: 'Desktop', payload: {} })} 
-         messages={[]} // Chat state would ideally be in global state too
+         onClose={() => dispatchEvent({ type: 'SYSTEM_CHAT_TOGGLE', source: 'Desktop', payload: {} })} 
+         onOpen={() => dispatchEvent({ type: 'SYSTEM_CHAT_TOGGLE', source: 'Desktop', payload: {} })} 
+         messages={[]} 
          input="" setInput={() => {}} onSend={() => {}} isLoading={false}
       />
 
@@ -1237,11 +1135,11 @@ export default function Desktop() {
          activeId={state.windows.focusedWindowID} 
          onRestore={(id: string) => dispatchEvent({ type: 'WINDOW_RESTORE', source: 'Shelf', payload: { windowID: id } })} 
          onMinimize={() => {}} 
-         onToggleLauncher={() => dispatch({ type: 'SYSTEM_LAUNCHER_TOGGLE', source: 'Shelf', payload: {} })} 
+         onToggleLauncher={() => dispatchEvent({ type: 'SYSTEM_LAUNCHER_TOGGLE', source: 'Shelf', payload: {} })} 
          launcherOpen={state.system.launcherOpen} 
          pinnedApps={state.dock.pinnedAppIDs} 
-         onTogglePin={(id: string) => dispatch({ type: 'DOCK_PIN_TOGGLE', source: 'Shelf', payload: { appID: id } })} 
-         onOpenApp={(hub: any) => dispatchEvent({ type: 'WINDOW_OPEN', source: 'Shelf', payload: { appID: hub.id || hub } })} 
+         onTogglePin={(id: string) => dispatchEvent({ type: 'DOCK_PIN_TOGGLE', source: 'Shelf', payload: { appID: id } })} 
+         onOpenApp={(hub: any) => dispatchEvent({ type: 'DOCK_ICON_CLICK', source: 'Shelf', payload: { appID: hub.id || hub } })} 
       />
     </div>
   );

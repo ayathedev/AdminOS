@@ -94,6 +94,14 @@ export interface Partner {
   notes?: string;
 }
 
+export interface IntakeSession {
+    id: string;
+    status: 'In Progress' | 'Submitted' | 'Approved' | 'Cancelled';
+    answers: Record<string, any>;
+    linkedClientId?: string;
+    createdAt: string;
+}
+
 // --- Event System Types ---
 
 export interface OSEvent {
@@ -118,6 +126,7 @@ export interface OSState {
     notes: Record<string, Note>;
     tasks: Record<string, Task>;
     partners: Record<string, Partner>;
+    intakes: Record<string, IntakeSession>;
   };
   system: {
     overlays: {

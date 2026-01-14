@@ -15,6 +15,7 @@ export interface AppWindow {
   isMinimized: boolean;
   zIndex: number;
   position: { x: number; y: number };
+  size?: { width: number; height: number };
 }
 
 export interface ChatMessage {
@@ -24,19 +25,14 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-export interface WidgetData {
-  title: string;
-  type: 'list' | 'stat' | 'text' | 'chart';
-  data: any;
-}
-
 export interface Client {
   id: string;
   preferredName: string;
+  legalName?: string;
   status: 'Active' | 'Closed';
   intakeDate: string;
   lastUpdated: string;
-  fullProfile: Record<string, any>;
+  fullProfile: Record<string, any>; // Stores detailed profile sections
 }
 
 export interface ClientActivity {
@@ -57,16 +53,29 @@ export interface OSActivity {
 
 export interface Note {
   id: string;
-  content: string;
+  type: 'client' | 'general';
+  linkedClient?: string; // ID
   date: string;
-  clientId?: string; // If null, general note
+  summary: string;
+  nextSteps?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Task {
   id: string;
   title: string;
-  priority: 'High' | 'Medium' | 'Low';
+  priority: 'High' | 'Medium' | 'Low' | 'Urgent';
   dueDate?: string;
-  clientId?: string; // If null, general task
-  isCompleted: boolean;
+  linkedClient?: string; // ID
+  notes?: string;
+  completed: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ControlPanelData {
+  priorities: string[]; // Task IDs
+  urgentFollowUps: string[]; // Task IDs
+  weeklyNotes: string;
 }

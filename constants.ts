@@ -1,4 +1,5 @@
-import { Hub } from './types';
+
+import { Hub, Task, Client } from './types';
 
 export const SYSTEM_PROMPT = `
 ## ROLE
@@ -290,7 +291,7 @@ export const HUBS: Hub[] = [
   }
 ];
 
-export const DEFAULT_CLIENT = {
+export const DEFAULT_CLIENT: Client = {
   id: 'jordan-default',
   preferredName: 'Jordan',
   legalName: 'Jordan Taylor',
@@ -362,8 +363,31 @@ export const MOCK_NOTIFICATIONS = [
   { id: 3, title: 'Team Meeting at 2pm', time: '5h ago', urgent: false },
 ];
 
-export const MOCK_TASKS = [
-  { id: 1, text: 'Review intake for Sarah M.', done: false },
-  { id: 2, text: 'Email County Rep regarding housing voucher', done: true },
-  { id: 3, text: 'Update expense log for Q1', done: false },
+export const MOCK_TASKS: Task[] = [
+  { 
+    id: '1', 
+    title: 'Review intake for Sarah M.', 
+    completed: false, 
+    priority: 'High', 
+    createdAt: new Date().toISOString(), 
+    updatedAt: new Date().toISOString(),
+    linkedClient: 'sarah-id'
+  },
+  { 
+    id: '2', 
+    title: 'Email County Rep regarding housing voucher', 
+    completed: true, 
+    priority: 'Medium', 
+    createdAt: new Date().toISOString(), 
+    updatedAt: new Date().toISOString()
+  },
+  { 
+    id: '3', 
+    title: 'Update expense log for Q1', 
+    completed: false, 
+    priority: 'Low', 
+    createdAt: new Date().toISOString(), 
+    updatedAt: new Date().toISOString(),
+    dueDate: new Date().toISOString().split('T')[0]
+  },
 ];

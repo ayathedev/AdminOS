@@ -130,7 +130,7 @@ const handleWindowOpen = (state: OSState, payload: any): OSState => {
     isOpen: true,
     isMinimized: false,
     isMaximized: false,
-    zIndex: isModal ? 9999 : state.windows.order.length + 10,
+    zIndex: 0, // Calculated dynamically in OSWindow
     position,
     size: { width: defaultWidth, height: defaultHeight },
     activePage: initialPage || (hub.pages ? hub.pages[0] : undefined),
@@ -460,9 +460,10 @@ const Clock = () => {
 };
 
 const TopBar = () => (
-  <div className="h-12 bg-white/80 backdrop-blur-md border-b border-white/50 flex items-center justify-between px-4 fixed top-0 w-full z-50 select-none">
+  // Z-INDEX: 3 (Top Bar)
+  <div className="h-12 bg-white/80 backdrop-blur-md border-b border-white/50 flex items-center justify-between px-4 fixed top-0 w-full z-[3] select-none">
      <div className="flex items-center gap-4">
-        <span className="font-bold text-gray-700 tracking-tight">AdminOS</span>
+        <span className="font-bold text-gray-700 tracking-tight">AdminOS <span className="text-xs font-normal text-gray-400 ml-1">v0.5.0</span></span>
         <div className="flex items-center gap-2 text-xs text-gray-500">
            <span className="hover:text-gray-800 cursor-pointer transition">File</span>
            <span className="hover:text-gray-800 cursor-pointer transition">Edit</span>
@@ -644,8 +645,9 @@ const OSWindow = ({ win, dispatch, isActive, state }: { win: AppWindow, dispatch
   }, [isDragging, dragOffset, win.isMaximized, dispatch, win.id]);
 
   // --- Strict Z-Index Management ---
-  const baseZIndex = 10 + win.zIndex; 
-  const calculatedZIndex = isModal ? 9999 : (isActive ? 100 : baseZIndex);
+  const index = state.windows.order.indexOf(win.id);
+  // Modal: 9999. Focused: 100+index. Normal: 10+index.
+  const calculatedZIndex = isModal ? 9999 : (isActive ? 100 + index : 10 + index);
 
   const style = win.isMaximized 
     ? { top: LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN, left: LAYOUT.MARGIN, width: state.system.layout.desktopWidth - LAYOUT.MARGIN * 2, height: state.system.layout.desktopHeight - LAYOUT.DOCK_HEIGHT - LAYOUT.MARGIN * 2 - LAYOUT.TOP_BAR_HEIGHT, zIndex: calculatedZIndex }
@@ -932,7 +934,8 @@ const PartnershipsHub = ({ partners, dispatch }: { partners: Partner[], dispatch
 // --- Widgets & Overlays ---
 
 const WidgetArea = ({ notifications, onOpenUrgent }: any) => (
-  <div className="absolute top-12 right-4 w-80 space-y-4 pointer-events-none z-10">
+  // Z-INDEX: 5 (Widgets)
+  <div className="absolute top-12 right-4 w-80 space-y-4 pointer-events-none z-[5]">
     <div className="bg-white/90 backdrop-blur shadow-lg rounded-xl p-4 pointer-events-auto border border-white/50">
       <h3 className="text-sm font-bold text-gray-500 uppercase mb-3">Notifications</h3>
       <div className="space-y-2">
@@ -965,7 +968,8 @@ const MinimizedWidgets = ({ windows, onRestore }: any) => {
   const minimized = windows.filter((w: AppWindow) => w.isMinimized);
   if (minimized.length === 0) return null;
   return (
-    <div className="absolute bottom-24 right-4 flex flex-col gap-2 items-end z-0">
+    // Z-INDEX: 5 (Widgets)
+    <div className="absolute bottom-24 right-4 flex flex-col gap-2 items-end z-[5]">
       {minimized.map((w: AppWindow) => {
          const hub = HUBS.find(h => h.id === w.hubId);
          return (
@@ -987,7 +991,8 @@ const TaskModal = ({ onClose, clients, onSave }: any) => {
    const [linkedClient, setLinkedClient] = useState('');
 
    return (
-      <div className="fixed inset-0 flex items-center justify-center z-[100]">
+      // Z-INDEX: 10000 (System Modal)
+      <div className="fixed inset-0 flex items-center justify-center z-[10000]">
          <div className="absolute inset-0 bg-black/40" onClick={onClose} />
          <div className="bg-white rounded-xl shadow-2xl w-[400px] p-6 relative z-10">
             <h3 className="text-xl font-bold mb-4">New Task</h3>
@@ -1036,7 +1041,8 @@ const TaskModal = ({ onClose, clients, onSave }: any) => {
 const Launcher = ({ isOpen, onClose, onOpenApp }: any) => {
    if (!isOpen) return null;
    return (
-      <div className="fixed inset-0 z-[80] flex items-center justify-center">
+      // Z-INDEX: 10001 (System Overlay)
+      <div className="fixed inset-0 z-[10001] flex items-center justify-center">
          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
          <div className="bg-white/90 backdrop-blur-xl w-[800px] rounded-3xl p-8 shadow-2xl relative z-10 grid grid-cols-5 gap-8 animate-in fade-in zoom-in duration-200">
             {HUBS.map(hub => (
@@ -1073,7 +1079,8 @@ const ChatOverlay = ({ isOpen, onClose, messages, input, setInput, onSend, isLoa
    if (!isOpen) return null;
 
    return (
-      <div className="fixed bottom-24 right-8 w-96 h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden z-[90] border border-gray-200 animate-in slide-in-from-bottom-10">
+      // Z-INDEX: 10002 (System Overlay)
+      <div className="fixed bottom-24 right-8 w-96 h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden z-[10002] border border-gray-200 animate-in slide-in-from-bottom-10">
          <div className="bg-indigo-600 p-4 text-white font-bold flex justify-between items-center">
             <div className="flex items-center gap-2"><Sparkles size={18}/> AdminOS Assistant</div>
             <button onClick={onClose}><X size={18}/></button>
@@ -1110,7 +1117,8 @@ const ChatOverlay = ({ isOpen, onClose, messages, input, setInput, onSend, isLoa
 
 const Shelf = ({ windows, activeId, onRestore, onMinimize, onToggleLauncher, launcherOpen, pinnedApps, onTogglePin, onOpenApp }: any) => {
    return (
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 h-16 bg-white/70 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl flex items-center px-4 gap-2 z-50 transition-all hover:scale-105">
+      // Z-INDEX: 4 (Dock)
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 h-16 bg-white/70 backdrop-blur-xl border border-white/40 rounded-2xl shadow-2xl flex items-center px-4 gap-2 z-[4] transition-all hover:scale-105">
          <button onClick={onToggleLauncher} className={`p-3 rounded-xl transition ${launcherOpen ? 'bg-indigo-600 text-white shadow-inner' : 'hover:bg-white/50 text-gray-700'}`}>
             <LayoutGrid size={24} />
          </button>
@@ -1198,13 +1206,15 @@ export default function Desktop() {
   }, []);
 
   return (
+    // Z-INDEX: 1 (Background) implicit
     <div className="w-full h-screen bg-cover bg-center overflow-hidden relative" style={{ backgroundImage: `linear-gradient(135deg, #e0e7ff 0%, #f3e8ff 100%)` }}>
       <TopBar />
       <WidgetArea notifications={MOCK_NOTIFICATIONS} onOpenUrgent={() => dispatchEvent({ type: 'WINDOW_OPEN', source: 'Widget', payload: { appID: 'urgent' } })} />
       
       <MinimizedWidgets windows={Object.values(state.windows.byID)} onRestore={(id: string) => dispatchEvent({ type: 'WINDOW_RESTORE', source: 'Widget', payload: { windowID: id } })} />
 
-      {state.system.overlays.blurActive && <div className="fixed inset-0 bg-white/30 backdrop-blur-sm z-[60]" />}
+      {/* Z-INDEX: 9000 (Blur Overlay) */}
+      {state.system.overlays.blurActive && <div className="fixed inset-0 bg-white/30 backdrop-blur-sm z-[9000]" />}
 
       {state.windows.order.map(id => {
          const win = state.windows.byID[id];

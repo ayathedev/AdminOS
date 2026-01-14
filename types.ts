@@ -129,6 +129,10 @@ export interface OSState {
     intakes: Record<string, IntakeSession>;
   };
   system: {
+    layout: {
+      desktopWidth: number;
+      desktopHeight: number;
+    };
     overlays: {
       blurActive: boolean;
       activeModalWindowID: string | null;

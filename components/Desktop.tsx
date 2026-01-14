@@ -24,6 +24,14 @@ const IconComponent = ({ name, className }: { name: string, className?: string }
 const generateID = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 const nowISO = () => new Date().toISOString();
 
+// --- Layout Constants ---
+const LAYOUT = {
+  MARGIN: 16,
+  GRID: 8,
+  TOP_BAR_HEIGHT: 48,
+  DOCK_HEIGHT: 72, 
+};
+
 // --- Initial State ---
 const initialState: OSState = {
   windows: { byID: {}, order: [], focusedWindowID: null },
@@ -36,6 +44,10 @@ const initialState: OSState = {
     intakes: {}
   },
   system: {
+    layout: {
+       desktopWidth: typeof window !== 'undefined' ? window.innerWidth : 1200,
+       desktopHeight: typeof window !== 'undefined' ? window.innerHeight : 800,
+    },
     overlays: { blurActive: false, activeModalWindowID: null },
     launcherOpen: false,
     chatOpen: false,
@@ -58,6 +70,19 @@ const logActivity = (state: OSState, type: string, description: string, target?:
    }
 });
 
+const handleSystemResize = (state: OSState, payload: { width: number, height: number }): OSState => {
+   return {
+      ...state,
+      system: {
+         ...state.system,
+         layout: {
+            desktopWidth: payload.width,
+            desktopHeight: payload.height
+         }
+      }
+   };
+};
+
 const handleWindowOpen = (state: OSState, payload: any): OSState => {
   const { appID, initialPage, extraState } = payload;
   const hub = HUBS.find(h => h.id === appID) || { id: appID, name: appID === 'note-editor' ? 'Note Editor' : (appID === 'intake-wizard' ? 'Intake Wizard' : appID), icon: 'Square', color: 'bg-gray-500', pages: [], description: '' };
@@ -65,15 +90,38 @@ const handleWindowOpen = (state: OSState, payload: any): OSState => {
   const newWindowID = generateID('win');
   const isModal = appID === 'note-editor' || appID === 'intake-wizard';
   
-  // Default dimensions based on app type
-  const defaultWidth = appID === 'note-editor' ? 520 : (appID === 'intake-wizard' ? 600 : 900);
-  const defaultHeight = appID === 'note-editor' ? 420 : (appID === 'intake-wizard' ? 700 : 600);
+  const { desktopWidth, desktopHeight } = state.system.layout;
 
-  // Stagger position for non-modals
-  const count = Object.keys(state.windows.byID).length;
-  const position = isModal 
-     ? { x: (window.innerWidth - defaultWidth) / 2, y: (window.innerHeight - defaultHeight) / 2 }
-     : { x: 100 + (count * 30), y: 50 + (count * 30) };
+  // Default dimensions
+  const defaultWidth = appID === 'note-editor' ? 520 : (appID === 'intake-wizard' ? 600 : 960);
+  const defaultHeight = appID === 'note-editor' ? 420 : (appID === 'intake-wizard' ? 700 : 640);
+
+  let position = { x: LAYOUT.MARGIN * 2, y: LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN * 2 };
+
+  if (isModal) {
+     position = { 
+        x: Math.max(LAYOUT.MARGIN, (desktopWidth - defaultWidth) / 2), 
+        y: Math.max(LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN, (desktopHeight - defaultHeight) / 2) 
+     };
+  } else {
+     // Stagger logic
+     const lastWindowID = state.windows.order.length > 0 ? state.windows.order[state.windows.order.length - 1] : null;
+     const lastWindow = lastWindowID ? state.windows.byID[lastWindowID] : null;
+
+     if (lastWindow && !lastWindow.isMaximized && !lastWindow.isMinimized) {
+        position = { x: lastWindow.position.x + 32, y: lastWindow.position.y + 32 };
+     }
+
+     // Wrap logic
+     if (position.x + defaultWidth > desktopWidth - LAYOUT.MARGIN || 
+         position.y + defaultHeight > desktopHeight - LAYOUT.DOCK_HEIGHT - LAYOUT.MARGIN) {
+         position = { x: LAYOUT.MARGIN * 2, y: LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN * 2 };
+     }
+  }
+
+  // Final Snap to Grid
+  position.x = Math.round(position.x / LAYOUT.GRID) * LAYOUT.GRID;
+  position.y = Math.round(position.y / LAYOUT.GRID) * LAYOUT.GRID;
 
   const newWindow: AppWindow = {
     id: newWindowID,
@@ -90,8 +138,6 @@ const handleWindowOpen = (state: OSState, payload: any): OSState => {
   };
 
   const newRunning = state.dock.runningAppIDs.includes(appID) ? state.dock.runningAppIDs : [...state.dock.runningAppIDs, appID];
-  
-  // Overlay logic: If modal, enable blur
   const newOverlays = isModal ? { blurActive: true, activeModalWindowID: newWindowID } : state.system.overlays;
 
   const newState = {
@@ -115,14 +161,12 @@ const handleWindowClose = (state: OSState, payload: any): OSState => {
   const { [windowID]: _, ...remainingByID } = state.windows.byID;
   const newOrder = state.windows.order.filter(id => id !== windowID);
   
-  // Focus lifecycle: Focus the next most recent window
   const newFocused = newOrder.length > 0 ? newOrder[newOrder.length - 1] : null;
 
   const appID = win.hubId;
   const hasOtherWindows = Object.values(remainingByID).some(w => w.hubId === appID);
   const newRunning = hasOtherWindows ? state.dock.runningAppIDs : state.dock.runningAppIDs.filter(id => id !== appID);
 
-  // Overlay lifecycle: Disable blur if the active modal closed
   let newOverlays = state.system.overlays;
   if (state.system.overlays.activeModalWindowID === windowID) {
     newOverlays = { blurActive: false, activeModalWindowID: null };
@@ -142,10 +186,8 @@ const handleWindowMinimize = (state: OSState, payload: any): OSState => {
   const win = state.windows.byID[windowID];
   if (!win) return state;
   
-  // Remove focus if the minimized window was focused
   let newFocused = state.windows.focusedWindowID;
   if (state.windows.focusedWindowID === windowID) {
-      // Find the next available window in order that is NOT minimized
       const visibleWindows = state.windows.order.filter(id => id !== windowID && !state.windows.byID[id].isMinimized);
       newFocused = visibleWindows.length > 0 ? visibleWindows[visibleWindows.length - 1] : null;
   }
@@ -166,7 +208,6 @@ const handleWindowRestore = (state: OSState, payload: any): OSState => {
   const win = state.windows.byID[windowID];
   if (!win) return state;
 
-  // Restore puts window at the top of the stack (end of order)
   const newOrder = [...state.windows.order.filter(id => id !== windowID), windowID];
   
   const newState = {
@@ -184,13 +225,9 @@ const handleWindowRestore = (state: OSState, payload: any): OSState => {
 const handleWindowFocus = (state: OSState, payload: any): OSState => {
   const { windowID } = payload;
   if (!state.windows.byID[windowID]) return state;
-  
-  // Optimization: If already focused and at top of stack, ignore
   if (state.windows.focusedWindowID === windowID && state.windows.order[state.windows.order.length - 1] === windowID) return state;
 
-  // Move to end of order to bring to front visually
   const newOrder = [...state.windows.order.filter(id => id !== windowID), windowID];
-  
   return {
     ...state,
     windows: { ...state.windows, order: newOrder, focusedWindowID: windowID }
@@ -202,13 +239,33 @@ const handleWindowMaximizeToggle = (state: OSState, payload: any): OSState => {
   const win = state.windows.byID[windowID];
   if (!win) return state;
 
+  const { desktopWidth, desktopHeight } = state.system.layout;
   const isMax = !win.isMaximized;
-  // If maximizing, save current bounds. If unmaximizing, restore from lastBounds.
-  const updatedWin = { 
-     ...win, 
-     isMaximized: isMax,
-     lastBounds: isMax ? { x: win.position.x, y: win.position.y, width: win.size?.width || 800, height: win.size?.height || 600 } : win.lastBounds
-  };
+  
+  let updatedWin: AppWindow;
+
+  if (isMax) {
+     // Maximize: Save bounds, fill usable area
+     updatedWin = {
+        ...win,
+        isMaximized: true,
+        lastBounds: { x: win.position.x, y: win.position.y, width: win.size?.width || 800, height: win.size?.height || 600 },
+        position: { x: LAYOUT.MARGIN, y: LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN },
+        size: { 
+           width: desktopWidth - LAYOUT.MARGIN * 2, 
+           height: desktopHeight - LAYOUT.DOCK_HEIGHT - LAYOUT.MARGIN * 2 - LAYOUT.TOP_BAR_HEIGHT
+        }
+     };
+  } else {
+     // Unmaximize: Restore bounds
+     const lb = win.lastBounds || { x: 100, y: 100, width: 800, height: 600 };
+     updatedWin = {
+        ...win,
+        isMaximized: false,
+        position: { x: lb.x, y: lb.y },
+        size: { width: lb.width, height: lb.height }
+     };
+  }
 
   const newState = {
      ...state,
@@ -220,11 +277,25 @@ const handleWindowMaximizeToggle = (state: OSState, payload: any): OSState => {
 const handleWindowDrag = (state: OSState, payload: any): OSState => {
   const { windowID, x, y } = payload;
   const win = state.windows.byID[windowID];
-  if (!win || win.isMaximized) return state; // Locked when maximized
+  if (!win || win.isMaximized) return state;
+
+  const { desktopWidth, desktopHeight } = state.system.layout;
   
+  // Drag Boundaries (Clamp)
+  let newX = Math.max(LAYOUT.MARGIN, Math.min(x, desktopWidth - LAYOUT.MARGIN - (win.size?.width || 0)));
+  let newY = Math.max(LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN, Math.min(y, desktopHeight - LAYOUT.DOCK_HEIGHT - LAYOUT.MARGIN - (win.size?.height || 0)));
+
+  // Grid Snapping
+  newX = Math.round(newX / LAYOUT.GRID) * LAYOUT.GRID;
+  newY = Math.round(newY / LAYOUT.GRID) * LAYOUT.GRID;
+
+  // Edge Snapping
+  if (Math.abs(newX - LAYOUT.MARGIN) < 8) newX = LAYOUT.MARGIN;
+  if (Math.abs(newY - (LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN)) < 8) newY = LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN;
+
   return {
     ...state,
-    windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: { ...win, position: { x, y } } } }
+    windows: { ...state.windows, byID: { ...state.windows.byID, [windowID]: { ...win, position: { x: newX, y: newY } } } }
   };
 };
 
@@ -233,22 +304,16 @@ const handleDockIconClick = (state: OSState, payload: any): OSState => {
   const { appID } = payload;
   const openWindows = Object.values(state.windows.byID).filter(w => w.hubId === appID);
   
-  // Case 1: No windows open -> Launch (Create)
-  if (openWindows.length === 0) {
-     return handleWindowOpen(state, { appID });
-  }
+  if (openWindows.length === 0) return handleWindowOpen(state, { appID });
   
-  // Case 2: Minimized window exists -> Restore & Focus the last one
   const minimized = openWindows.filter(w => w.isMinimized);
   if (minimized.length > 0) {
      const lastMinimized = minimized[minimized.length - 1];
-     // Chain handlers: Restore state -> Focus state
      let s = handleWindowRestore(state, { windowID: lastMinimized.id });
      return handleWindowFocus(s, { windowID: lastMinimized.id });
   }
 
-  // Case 3: Windows open -> Focus the most recently active one
-  const lastActive = openWindows[openWindows.length - 1]; // windows are ordered by z-index/recency
+  const lastActive = openWindows[openWindows.length - 1]; 
   return handleWindowFocus(state, { windowID: lastActive.id });
 };
 
@@ -256,7 +321,6 @@ const handleDockPinToggle = (state: OSState, payload: any): OSState => {
   const { appID } = payload;
   const isPinned = state.dock.pinnedAppIDs.includes(appID);
   const newPinned = isPinned ? state.dock.pinnedAppIDs.filter(id => id !== appID) : [...state.dock.pinnedAppIDs, appID];
-  
   const newState = { ...state, dock: { ...state.dock, pinnedAppIDs: newPinned } };
   return logActivity(newState, 'System', isPinned ? `Unpinned ${appID}` : `Pinned ${appID}`, 'Dock');
 };
@@ -296,11 +360,7 @@ const handleNoteSave = (state: OSState, payload: any): OSState => {
     data: { ...state.data, notes: { ...state.data.notes, [id]: newNote }, clients: newClients }
   };
   newState = logActivity(newState, 'Note', `${mode === 'create' ? 'Created' : 'Updated'} note`, title);
-  
-  // Close the window after save
-  if (payload.windowID) {
-     return handleWindowClose(newState, { windowID: payload.windowID });
-  }
+  if (payload.windowID) return handleWindowClose(newState, { windowID: payload.windowID });
   return newState;
 };
 
@@ -318,14 +378,11 @@ const handleClientCreateFromIntake = (state: OSState, payload: any): OSState => 
      data: { ...state.data, clients: { ...state.data.clients, [client.id]: client } }
   };
   newState = logActivity(newState, 'Intake', 'Client created from intake', client.preferredName);
-  
-  // Automatically open the new client profile
   return handleWindowOpen(newState, { appID: 'clients', extraState: { navigationState: { selectedClientId: client.id } } });
 };
 
 const handleIntakeApprove = (state: OSState, payload: any): OSState => {
    const { clientData, windowID } = payload;
-   // Chain: Create Client -> Close Wizard
    let s = handleClientCreateFromIntake(state, { clientData });
    return handleWindowClose(s, { windowID });
 };
@@ -347,6 +404,8 @@ const ROUTES: Record<string, (state: OSState, payload: any) => OSState> = {
   NOTE_SAVE: handleNoteSave,
   INTAKE_APPROVE: handleIntakeApprove,
   
+  SYSTEM_RESIZE: handleSystemResize,
+
   SIDEBAR_PAGE_CHANGE: (state, { windowID, newPage }) => {
      const win = state.windows.byID[windowID];
      if (!win) return state;
@@ -401,7 +460,7 @@ const Clock = () => {
 };
 
 const TopBar = () => (
-  <div className="h-8 bg-white/80 backdrop-blur-md border-b border-white/50 flex items-center justify-between px-4 fixed top-0 w-full z-50 select-none">
+  <div className="h-12 bg-white/80 backdrop-blur-md border-b border-white/50 flex items-center justify-between px-4 fixed top-0 w-full z-50 select-none">
      <div className="flex items-center gap-4">
         <span className="font-bold text-gray-700 tracking-tight">AdminOS</span>
         <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -585,12 +644,11 @@ const OSWindow = ({ win, dispatch, isActive, state }: { win: AppWindow, dispatch
   }, [isDragging, dragOffset, win.isMaximized, dispatch, win.id]);
 
   // --- Strict Z-Index Management ---
-  // Modals (9999) > Active Windows (100) > Inactive Windows (10-50 based on order)
-  const baseZIndex = 10 + win.zIndex; // win.zIndex is derived from order in reducer
+  const baseZIndex = 10 + win.zIndex; 
   const calculatedZIndex = isModal ? 9999 : (isActive ? 100 : baseZIndex);
 
   const style = win.isMaximized 
-    ? { top: 32, left: 0, width: '100%', height: 'calc(100vh - 4rem)', zIndex: calculatedZIndex }
+    ? { top: LAYOUT.TOP_BAR_HEIGHT + LAYOUT.MARGIN, left: LAYOUT.MARGIN, width: state.system.layout.desktopWidth - LAYOUT.MARGIN * 2, height: state.system.layout.desktopHeight - LAYOUT.DOCK_HEIGHT - LAYOUT.MARGIN * 2 - LAYOUT.TOP_BAR_HEIGHT, zIndex: calculatedZIndex }
     : { top: win.position.y, left: win.position.x, width: win.size?.width, height: win.size?.height, zIndex: calculatedZIndex };
 
   // --- Modal Window Shell ---
@@ -1126,6 +1184,18 @@ export default function Desktop() {
         dispatch(event);
      }
   };
+
+  useEffect(() => {
+     const handleResize = () => {
+        dispatchEvent({ 
+           type: 'SYSTEM_RESIZE', 
+           source: 'Window', 
+           payload: { width: window.innerWidth, height: window.innerHeight } 
+        });
+     };
+     window.addEventListener('resize', handleResize);
+     return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
     <div className="w-full h-screen bg-cover bg-center overflow-hidden relative" style={{ backgroundImage: `linear-gradient(135deg, #e0e7ff 0%, #f3e8ff 100%)` }}>

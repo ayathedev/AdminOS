@@ -50,6 +50,7 @@ At any point, if the user types "skip":
    - **Support**: List 1-2 realistic services or referrals.
    - **Safety**: Generate a realistic safety note (e.g., "Currently safe, staying with friend" or "Fleeing DV, needs shelter").
    - **Household**: Randomly decide if they have household members (0-3 members).
+   - **NO BLANK FIELDS**: Ensure every field in the JSON structure has a value.
 3. IMMEDIATELY output the approval request and the JSON block.
 
 ## INTRODUCTION BEHAVIOR
@@ -305,16 +306,23 @@ export const MOCK_TASKS: Task[] = [
 ];
 
 export const INITIAL_PARTNERS: Partner[] = [
+  // Shelters
   { id: '1', category: 'Shelters', name: 'Family Promise of Greater Cleveland', address: '3470 E 152nd St, Cleveland', notes: 'Serves families with children.' },
   { id: '2', category: 'Shelters', name: 'The City Mission', address: '5310 Carnegie Ave, Cleveland', notes: 'Men’s and women’s crisis centers.' },
-  { id: '3', category: 'Shelters', name: 'Domestic Violence Center Shelter', notes: 'Confidential location.' },
-  { id: '4', category: 'Shelters', name: 'LMM Men’s Shelter', address: '2100 Lakeside Ave, Cleveland' },
+  { id: '3', category: 'Shelters', name: 'LMM Men’s Shelter', address: '2100 Lakeside Ave, Cleveland' },
+  { id: '4', category: 'Shelters', name: 'Domestic Violence Center Shelter', notes: 'Confidential location.' },
+  
+  // County Agencies
   { id: '5', category: 'County Agencies', name: 'Cuyahoga County Job & Family Services', address: '1641 Payne Ave', notes: 'Benefits application.' },
   { id: '6', category: 'County Agencies', name: 'Step Forward', address: '1801 Superior Ave', notes: 'Anti-poverty agency, HEAP application.' },
-  { id: '7', category: 'County Agencies', name: 'Fiscal Officer’s Office', notes: 'Property tax/ownership records.' },
+  { id: '7', category: 'County Agencies', name: 'County Fiscal Office', notes: 'Property tax/ownership records.' },
+  
+  // Housing Partners
   { id: '8', category: 'Housing Partners', name: 'CHN Housing Partners', website: 'chnhousingpartners.org' },
   { id: '9', category: 'Housing Partners', name: 'CMHA', website: 'cmha.net' },
-  { id: '10', category: 'Housing Partners', name: 'EDEN Housing', notes: 'Specialized housing for disabilities.' },
+  { id: '10', category: 'Housing Partners', name: 'EDEN', notes: 'Specialized housing for disabilities.' },
+  
+  // Legal Aid
   { id: '11', category: 'Legal Aid', name: 'Legal Aid Society of Cleveland', address: '1223 W 6th St', phone: '216-687-1900' },
-  { id: '12', category: 'Legal Aid', name: 'CMBA Pro Bono Programs', website: 'clemetrobar.org' }
+  { id: '12', category: 'Legal Aid', name: 'Cleveland Metropolitan Bar Association Pro Bono Programs', website: 'clemetrobar.org' }
 ];

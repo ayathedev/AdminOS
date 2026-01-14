@@ -102,4 +102,49 @@ export interface IntakeSession {
     createdAt: string;
 }
 
-// --- Event System
+// --- Event System Types ---
+
+export interface OSEvent {
+  type: string;
+  source: string;
+  payload: any;
+  timestamp?: string;
+}
+
+export interface OSState {
+  windows: {
+    byID: Record<string, AppWindow>;
+    order: string[]; // Window IDs sorted by Z-index (last is top)
+    focusedWindowID: string | null;
+  };
+  dock: {
+    pinnedAppIDs: string[];
+    runningAppIDs: string[];
+  };
+  data: {
+    clients: Record<string, Client>;
+    notes: Record<string, Note>;
+    tasks: Record<string, Task>;
+    partners: Record<string, Partner>;
+    intakes: Record<string, IntakeSession>;
+  };
+  system: {
+    layout: {
+      desktopWidth: number;
+      desktopHeight: number;
+    };
+    overlays: {
+      blurActive: boolean;
+      activeModalWindowID: string | null;
+    };
+    launcherOpen: boolean;
+    chatOpen: boolean;
+    weeklyNotes: string;
+    debugMode: boolean;
+  };
+  logging: {
+    events: OSEvent[];
+    activities: OSActivity[];
+    lastReductionTime: number;
+  };
+}

@@ -1,4 +1,3 @@
-
 import { Hub, Task, Client, Partner } from './types';
 
 export const SYSTEM_PROMPT = `

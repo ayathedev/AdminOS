@@ -13,6 +13,10 @@ export interface AppWindow {
   title: string;
   isOpen: boolean;
   isMinimized: boolean;
+  isMaximized?: boolean; // New: Maximize state
+  lastBounds?: { x: number; y: number; width: number; height: number }; // New: Restore bounds
+  activePage?: string; // New: Selected sidebar page
+  noteData?: { clientId?: string; noteId?: string }; // New: Data for note editor
   zIndex: number;
   position: { x: number; y: number };
   size?: { width: number; height: number };
@@ -55,6 +59,8 @@ export interface Note {
   id: string;
   type: 'client' | 'general';
   linkedClient?: string; // ID
+  title?: string; // New
+  body?: string; // New (mapped to summary in legacy)
   date: string;
   summary: string;
   nextSteps?: string;

@@ -4,11 +4,12 @@ import {
   X, Minus, Square, Send, Maximize2, Minimize2,
   Calendar as CalendarIcon, CheckSquare, Activity, User, 
   PlusCircle, FileText, ClipboardList, Clock, ArrowLeft,
-  ChevronRight, MoreHorizontal, Pencil, Save, XCircle
+  ChevronRight, MoreHorizontal, Pencil, Save, XCircle,
+  Minimize, RotateCcw, AlertCircle, CalendarDays, CheckCircle2, Circle
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { HUBS, MOCK_NOTIFICATIONS, MOCK_TASKS, CLIENT_INTAKE_CONTEXT, DEFAULT_CLIENT } from '../constants';
-import { Hub, AppWindow, ChatMessage, Client, ClientActivity } from '../types';
+import { Hub, AppWindow, ChatMessage, Client, ClientActivity, OSActivity, Note, Task } from '../types';
 import { generateOSResponse } from '../services/geminiService';
 
 // --- Helper Components ---
@@ -44,6 +45,154 @@ const calculateAge = (dobString: string) => {
   const diff = Date.now() - dob.getTime();
   const age = new Date(diff);
   return Math.abs(age.getUTCFullYear() - 1970);
+};
+
+// --- View Components ---
+
+const PrioritiesView = ({ tasks, onUpdateTask, onOpenTaskModal }: { tasks: Task[], onUpdateTask: (t: Task) => void, onOpenTaskModal: () => void }) => {
+  const highPriorityTasks = tasks.filter(t => !t.isCompleted && t.priority === 'High');
+  const otherTasks = tasks.filter(t => !t.isCompleted && t.priority !== 'High').slice(0, 3);
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+       <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Top Priorities</h2>
+            <p className="text-gray-500">Focus on these high-impact items today.</p>
+          </div>
+          <button onClick={onOpenTaskModal} className="bg-rose-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-rose-700 transition">
+             <PlusCircle size={18} /> Add Priority
+          </button>
+       </div>
+
+       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-gray-200 bg-rose-50 flex items-center gap-2">
+             <AlertCircle size={18} className="text-rose-600" />
+             <h3 className="font-semibold text-rose-800">High Priority</h3>
+          </div>
+          <div className="divide-y divide-gray-100">
+             {highPriorityTasks.length === 0 && (
+                <div className="p-8 text-center text-gray-400">No high priority tasks. Great job!</div>
+             )}
+             {highPriorityTasks.map(task => (
+                <div key={task.id} className="p-4 flex items-start gap-3 hover:bg-gray-50 transition group">
+                   <button 
+                     onClick={() => onUpdateTask({...task, isCompleted: true})}
+                     className="mt-0.5 text-gray-300 hover:text-green-500 transition"
+                   >
+                      <Circle size={20} />
+                   </button>
+                   <div className="flex-1">
+                      <p className="font-medium text-gray-800">{task.title}</p>
+                      {task.dueDate && <p className="text-xs text-rose-600 mt-1">Due: {task.dueDate}</p>}
+                   </div>
+                   <div className="text-xs bg-rose-100 text-rose-700 px-2 py-1 rounded font-medium">High</div>
+                </div>
+             ))}
+          </div>
+       </div>
+
+       {otherTasks.length > 0 && (
+         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden opacity-80">
+            <div className="p-4 border-b border-gray-200 bg-gray-50">
+               <h3 className="font-semibold text-gray-700">Other Active Tasks</h3>
+            </div>
+            <div className="divide-y divide-gray-100">
+               {otherTasks.map(task => (
+                  <div key={task.id} className="p-4 flex items-center gap-3">
+                     <button 
+                       onClick={() => onUpdateTask({...task, isCompleted: true})}
+                       className="text-gray-300 hover:text-green-500 transition"
+                     >
+                        <Circle size={20} />
+                     </button>
+                     <span className="text-gray-700">{task.title}</span>
+                  </div>
+               ))}
+            </div>
+         </div>
+       )}
+    </div>
+  );
+};
+
+const UrgentView = ({ tasks, clients, onUpdateTask }: { tasks: Task[], clients: Client[], onUpdateTask: (t: Task) => void }) => {
+  const urgentTasks = tasks.filter(t => !t.isCompleted && (t.priority === 'High' || (t.dueDate && new Date(t.dueDate) <= new Date(new Date().setDate(new Date().getDate() + 2)))));
+  
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div>
+         <h2 className="text-2xl font-bold text-gray-900">Urgent Follow Ups</h2>
+         <p className="text-gray-500">Time-sensitive tasks and client needs.</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+         {urgentTasks.length === 0 && (
+            <div className="p-12 text-center text-gray-400 bg-white rounded-xl border border-gray-200 border-dashed">
+               No urgent follow-ups right now.
+            </div>
+         )}
+         {urgentTasks.map(task => {
+            const client = clients.find(c => c.id === task.clientId);
+            return (
+               <div key={task.id} className="bg-white p-4 rounded-xl border border-l-4 border-gray-200 border-l-rose-500 shadow-sm flex items-start gap-4">
+                  <div className="flex-1">
+                     <div className="flex items-center gap-2 mb-1">
+                        <span className="font-bold text-gray-800">{task.title}</span>
+                        {client && <span className="text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">{client.preferredName}</span>}
+                     </div>
+                     <div className="flex gap-4 text-xs text-gray-500">
+                        {task.dueDate && <span className="text-rose-600 font-medium">Due: {task.dueDate}</span>}
+                        <span>Priority: {task.priority}</span>
+                     </div>
+                  </div>
+                  <button 
+                     onClick={() => onUpdateTask({...task, isCompleted: true})}
+                     className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 transition flex items-center gap-1"
+                  >
+                     <CheckCircle2 size={14} /> Complete
+                  </button>
+               </div>
+            );
+         })}
+      </div>
+    </div>
+  );
+};
+
+const WeeklyView = ({ tasks }: { tasks: Task[] }) => {
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div>
+         <h2 className="text-2xl font-bold text-gray-900">Weekly Overview</h2>
+         <p className="text-gray-500">At a glance schedule and deadlines.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+         {days.map(day => (
+            <div key={day} className={`bg-white rounded-xl border p-4 min-h-[200px] flex flex-col ${day === today ? 'border-indigo-500 ring-1 ring-indigo-500 shadow-md' : 'border-gray-200'}`}>
+               <h3 className={`font-bold mb-3 ${day === today ? 'text-indigo-600' : 'text-gray-400'}`}>{day}</h3>
+               <div className="space-y-2 flex-1">
+                  {/* Mock logic for demo - in real app, filter tasks by date */}
+                  {day === today && (
+                     <div className="text-xs bg-indigo-50 text-indigo-700 p-2 rounded">
+                        Team Meeting <span className="opacity-75 block text-[10px]">2:00 PM</span>
+                     </div>
+                  )}
+                  {tasks.filter(t => !t.isCompleted && t.priority === 'High' && day === 'Friday').slice(0, 1).map(t => (
+                     <div key={t.id} className="text-xs bg-rose-50 text-rose-700 p-2 rounded">
+                        {t.title}
+                     </div>
+                  ))}
+               </div>
+            </div>
+         ))}
+      </div>
+    </div>
+  );
 };
 
 // --- Client Hub Components ---
@@ -540,6 +689,176 @@ const ClientHub: React.FC<ClientHubProps> = ({
   );
 };
 
+// --- Activity Log Hub ---
+
+const ActivityLogHub: React.FC<{ activities: OSActivity[] }> = ({ activities }) => {
+  return (
+    <div className="h-full flex flex-col animate-in fade-in">
+      <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+         <Activity size={24} className="text-indigo-600" /> Recent Activity Log
+      </h2>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex-1 overflow-hidden flex flex-col">
+         <div className="grid grid-cols-12 bg-gray-50 p-4 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">
+            <div className="col-span-2">Time</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-3">Target</div>
+            <div className="col-span-5">Description</div>
+         </div>
+         <div className="overflow-y-auto flex-1 p-0">
+            {activities.length === 0 && <div className="p-8 text-center text-gray-400">No activity logged yet.</div>}
+            {activities.map(act => (
+               <div key={act.id} className="grid grid-cols-12 p-4 border-b border-gray-100 text-sm hover:bg-gray-50">
+                  <div className="col-span-2 text-gray-500">{act.timestamp.toLocaleTimeString()}</div>
+                  <div className="col-span-2 font-medium text-gray-700">{act.type}</div>
+                  <div className="col-span-3 text-indigo-600">{act.target || '-'}</div>
+                  <div className="col-span-5 text-gray-800">{act.description}</div>
+               </div>
+            ))}
+         </div>
+      </div>
+    </div>
+  );
+};
+
+
+// --- Modals ---
+
+const QuickAddNoteModal = ({ onClose, clients, onSave }: { onClose: () => void, clients: Client[], onSave: (note: Note) => void }) => {
+  const [content, setContent] = useState('');
+  const [clientId, setClientId] = useState<string>('');
+
+  const handleSave = () => {
+    if (!content.trim()) return;
+    onSave({
+      id: `note-${Date.now()}`,
+      content,
+      date: new Date().toISOString(),
+      clientId: clientId || undefined
+    });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose}></div>
+       <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95">
+          <div className="bg-indigo-600 p-4 flex justify-between items-center text-white">
+             <h3 className="font-semibold flex items-center gap-2"><FileText size={18}/> New Note</h3>
+             <button onClick={onClose}><X size={20}/></button>
+          </div>
+          <div className="p-6 space-y-4">
+             <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Link to Client (Optional)</label>
+                <select 
+                  className="w-full p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-indigo-500"
+                  value={clientId}
+                  onChange={e => setClientId(e.target.value)}
+                >
+                   <option value="">General Note (No Client)</option>
+                   {clients.filter(c => c.status === 'Active').map(c => (
+                      <option key={c.id} value={c.id}>{c.preferredName}</option>
+                   ))}
+                </select>
+             </div>
+             <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Content</label>
+                <textarea 
+                   className="w-full p-3 border border-gray-300 rounded-lg text-sm h-32 outline-none focus:border-indigo-500"
+                   placeholder="Write your note here..."
+                   value={content}
+                   onChange={e => setContent(e.target.value)}
+                />
+             </div>
+             <button onClick={handleSave} className="w-full bg-indigo-600 text-white py-2 rounded-lg font-medium hover:bg-indigo-700 transition">
+                Save Note
+             </button>
+          </div>
+       </div>
+    </div>
+  );
+};
+
+const QuickAddTaskModal = ({ onClose, clients, onSave }: { onClose: () => void, clients: Client[], onSave: (task: Task) => void }) => {
+  const [title, setTitle] = useState('');
+  const [clientId, setClientId] = useState<string>('');
+  const [priority, setPriority] = useState<'High'|'Medium'|'Low'>('Medium');
+  const [dueDate, setDueDate] = useState('');
+
+  const handleSave = () => {
+    if (!title.trim()) return;
+    onSave({
+      id: `task-${Date.now()}`,
+      title,
+      priority,
+      dueDate,
+      clientId: clientId || undefined,
+      isCompleted: false
+    });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose}></div>
+       <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95">
+          <div className="bg-rose-600 p-4 flex justify-between items-center text-white">
+             <h3 className="font-semibold flex items-center gap-2"><CheckSquare size={18}/> New Task</h3>
+             <button onClick={onClose}><X size={20}/></button>
+          </div>
+          <div className="p-6 space-y-4">
+             <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Task Title</label>
+                <input 
+                   className="w-full p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-rose-500"
+                   placeholder="e.g. Call Housing Authority"
+                   value={title}
+                   onChange={e => setTitle(e.target.value)}
+                />
+             </div>
+             <div className="grid grid-cols-2 gap-4">
+                <div>
+                   <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Priority</label>
+                   <select 
+                     className="w-full p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-rose-500"
+                     value={priority}
+                     onChange={e => setPriority(e.target.value as any)}
+                   >
+                      <option>High</option>
+                      <option>Medium</option>
+                      <option>Low</option>
+                   </select>
+                </div>
+                <div>
+                   <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Due Date</label>
+                   <input 
+                      type="date"
+                      className="w-full p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-rose-500"
+                      value={dueDate}
+                      onChange={e => setDueDate(e.target.value)}
+                   />
+                </div>
+             </div>
+             <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Link to Client (Optional)</label>
+                <select 
+                  className="w-full p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-rose-500"
+                  value={clientId}
+                  onChange={e => setClientId(e.target.value)}
+                >
+                   <option value="">General Task (No Client)</option>
+                   {clients.filter(c => c.status === 'Active').map(c => (
+                      <option key={c.id} value={c.id}>{c.preferredName}</option>
+                   ))}
+                </select>
+             </div>
+             <button onClick={handleSave} className="w-full bg-rose-600 text-white py-2 rounded-lg font-medium hover:bg-rose-700 transition">
+                Create Task
+             </button>
+          </div>
+       </div>
+    </div>
+  );
+};
 
 const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void, onClientCreated: (client: Client) => void }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -547,7 +866,6 @@ const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Initialize
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
@@ -566,7 +884,6 @@ const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void
     init();
   }, []);
 
-  // Auto scroll
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -677,7 +994,7 @@ const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void
              <div className="flex gap-3">
                <input 
                  className="flex-1 bg-gray-100 hover:bg-gray-50 focus:bg-white border border-transparent focus:border-teal-500 rounded-xl px-4 py-3 outline-none transition-all text-sm text-gray-800"
-                 placeholder="Type 'ready' to begin or enter details..."
+                 placeholder="Type 'ready' to begin or enter details (or 'skip' to auto-fill)..."
                  value={input}
                  onChange={e => setInput(e.target.value)}
                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
@@ -700,29 +1017,137 @@ const QuickAddClientModal = ({ onClose, onClientCreated }: { onClose: () => void
   );
 };
 
+
 interface OSWindowProps {
   win: AppWindow;
   isActive: boolean;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
+  onMinimize: (id: string) => void;
   onOpenChat: () => void;
   clients: Client[];
   activities: ClientActivity[];
+  osActivities: OSActivity[];
+  tasks: Task[];
   onAddClient: (client: Client) => void;
   onUpdateClient: (client: Client) => void;
   onOpenIntake: () => void;
   onLogActivity: (activity: Omit<ClientActivity, 'id' | 'timestamp'>) => void;
   resetViewTrigger: number;
+  onUpdateTask: (task: Task) => void;
+  onOpenTaskModal: () => void;
 }
 
 const OSWindow: React.FC<OSWindowProps> = ({ 
-  win, isActive, onActivate, onClose, onOpenChat, clients, activities, 
-  onAddClient, onUpdateClient, onOpenIntake, onLogActivity, resetViewTrigger 
+  win, isActive, onActivate, onClose, onMinimize, onOpenChat, clients, activities, osActivities, tasks,
+  onAddClient, onUpdateClient, onOpenIntake, onLogActivity, resetViewTrigger, onUpdateTask, onOpenTaskModal 
 }) => {
   const hub = HUBS.find(h => h.id === win.hubId);
-  if (!hub) return null;
+  const isActivityLog = win.hubId === 'activity-log';
+  const isSpecialView = ['priorities', 'urgent', 'weekly'].includes(win.hubId);
+  
+  // Custom Window Logic
+  let title = win.title;
+  let icon = 'Square';
+  let color = 'bg-gray-500';
+
+  if (isActivityLog) {
+     title = 'Recent Activity Log';
+     icon = 'Activity';
+     color = 'bg-gray-700';
+  } else if (win.hubId === 'priorities') {
+     title = 'Top Priorities';
+     icon = 'AlertCircle';
+     color = 'bg-rose-600';
+  } else if (win.hubId === 'urgent') {
+     title = 'Urgent Follow Ups';
+     icon = 'Clock';
+     color = 'bg-amber-600';
+  } else if (win.hubId === 'weekly') {
+     title = 'Weekly Overview';
+     icon = 'CalendarDays';
+     color = 'bg-indigo-600';
+  } else if (hub) {
+     title = hub.name;
+     icon = hub.icon;
+     color = hub.color;
+  }
+
+  // Dragging logic
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const windowRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    // Only allow drag from header
+    if ((e.target as HTMLElement).closest('.window-controls')) return;
+    
+    setIsDragging(true);
+    setDragOffset({
+      x: e.clientX - win.position.x,
+      y: e.clientY - win.position.y
+    });
+    onActivate(win.id);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      
+      const newX = e.clientX - dragOffset.x;
+      const newY = e.clientY - dragOffset.y;
+      
+      if (windowRef.current) {
+        windowRef.current.style.left = `${newX}px`;
+        windowRef.current.style.top = `${newY}px`;
+        // We aren't updating React state continuously for performance, but we should eventually save it
+        // For this demo, direct DOM manip is smoother.
+      }
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (isDragging) {
+        setIsDragging(false);
+        // In a real app, we'd save the final position to state here
+        // win.position = { x: ... } via a callback
+      }
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset]);
+
+  // Initial Position style
+  const initialStyle = {
+    left: win.position.x,
+    top: win.position.y,
+    zIndex: isActive ? 50 : win.zIndex,
+    display: win.isOpen && !win.isMinimized ? 'flex' : 'none'
+  };
+
 
   const renderContent = () => {
+    if (isActivityLog) {
+      return <ActivityLogHub activities={osActivities} />;
+    }
+    if (win.hubId === 'priorities') {
+       return <PrioritiesView tasks={tasks} onUpdateTask={onUpdateTask} onOpenTaskModal={onOpenTaskModal} />;
+    }
+    if (win.hubId === 'urgent') {
+       return <UrgentView tasks={tasks} clients={clients} onUpdateTask={onUpdateTask} />;
+    }
+    if (win.hubId === 'weekly') {
+       return <WeeklyView tasks={tasks} />;
+    }
+
+    if (!hub) return null;
+
     if (hub.id === 'clients') {
       return (
         <ClientHub 
@@ -783,21 +1208,25 @@ const OSWindow: React.FC<OSWindowProps> = ({
 
   return (
     <div 
-      className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] h-[80vh] max-w-5xl bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden transition-all duration-200 border border-gray-200
-        ${isActive ? 'z-30 scale-100 opacity-100' : 'z-20 scale-95 opacity-0 pointer-events-none'}
+      ref={windowRef}
+      className={`fixed w-[90vw] h-[80vh] max-w-5xl bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden transition-opacity duration-200 border border-gray-200
+        ${isActive ? 'opacity-100' : 'opacity-100'} 
       `}
-      style={{ display: win.isOpen ? 'flex' : 'none' }}
+      style={initialStyle}
       onClick={() => onActivate(win.id)}
     >
       {/* Window Header */}
-      <div className={`h-10 ${hub.color} flex items-center justify-between px-3 shrink-0`}>
-         <div className="flex items-center gap-2 text-white font-medium text-sm">
-            <IconComponent name={hub.icon} className="w-4 h-4 opacity-80" />
-            {win.title}
+      <div 
+        className={`h-10 ${color} flex items-center justify-between px-3 shrink-0 cursor-move`}
+        onMouseDown={handleMouseDown}
+      >
+         <div className="flex items-center gap-2 text-white font-medium text-sm pointer-events-none">
+            <IconComponent name={icon} className="w-4 h-4 opacity-80" />
+            {title}
          </div>
-         <div className="flex items-center gap-2">
-            <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={() => {/* minimize logic */}}>
-              <Minus size={14} />
+         <div className="flex items-center gap-2 window-controls">
+            <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={(e) => { e.stopPropagation(); onMinimize(win.id); }}>
+              <Minimize size={14} />
             </button>
             <button className="p-1 hover:bg-white/20 rounded text-white/80 hover:text-white" onClick={() => {/* maximize logic */}}>
               <Square size={12} />
@@ -810,17 +1239,19 @@ const OSWindow: React.FC<OSWindowProps> = ({
 
       {/* Window Content */}
       <div className="flex-1 overflow-auto bg-gray-50 flex">
-        {/* Sidebar */}
-        <div className="w-48 bg-white border-r border-gray-200 p-4 hidden md:block shrink-0">
-          <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Pages</h4>
-          <ul className="space-y-1">
-            {hub.pages.map(page => (
-              <li key={page} className="text-sm text-gray-600 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer transition">
-                {page}
-              </li>
-            ))}
-          </ul>
-        </div>
+        {/* Sidebar - Hide for Activity Log and Special Views */}
+        {!isActivityLog && !isSpecialView && (
+          <div className="w-48 bg-white border-r border-gray-200 p-4 hidden md:block shrink-0">
+            <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Pages</h4>
+            <ul className="space-y-1">
+              {hub?.pages.map(page => (
+                <li key={page} className="text-sm text-gray-600 hover:bg-gray-100 px-3 py-2 rounded cursor-pointer transition">
+                  {page}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         
         {/* Main Area */}
         <div className="flex-1 p-8 bg-gray-50 overflow-y-auto">
@@ -839,20 +1270,41 @@ export default function Desktop() {
   const [activeWindowId, setActiveWindowId] = useState<string | null>(null);
   const [isLauncherOpen, setIsLauncherOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [showClientIntake, setShowClientIntake] = useState(false);
-  const [resetViewTrigger, setResetViewTrigger] = useState(0); // Used to signal ClientHub to reset
   
-  // Client DB State
-  const [clients, setClients] = useState<Client[]>([DEFAULT_CLIENT as unknown as Client]); // Casting to avoid strict type issues with mock data
+  // Modals
+  const [showClientIntake, setShowClientIntake] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+
+  const [resetViewTrigger, setResetViewTrigger] = useState(0); 
+  
+  // Data
+  const [clients, setClients] = useState<Client[]>([DEFAULT_CLIENT as unknown as Client]); 
   const [activities, setActivities] = useState<ClientActivity[]>([
     {
        id: 'act-1',
-       timestamp: new Date(Date.now() - 3600000), // 1 hour ago
+       timestamp: new Date(Date.now() - 3600000), 
        type: 'System',
        description: 'System initialized',
        clientName: 'Jordan'
     }
   ]);
+  const [osActivities, setOsActivities] = useState<OSActivity[]>([
+    {
+      id: 'os-1',
+      timestamp: new Date(Date.now() - 3600000),
+      type: 'System',
+      description: 'OS Booted Successfully',
+      target: 'System'
+    }
+  ]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [tasks, setTasks] = useState<Task[]>(MOCK_TASKS.map(t => ({
+    id: `task-${t.id}`,
+    title: t.text,
+    priority: 'Medium',
+    isCompleted: t.done
+  } as Task)));
 
   // Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -863,43 +1315,126 @@ export default function Desktop() {
 
   // --- Logic ---
 
+  const logOSActivity = (type: string, description: string, target?: string) => {
+    const newAct: OSActivity = {
+      id: `os-${Date.now()}`,
+      timestamp: new Date(),
+      type,
+      description,
+      target
+    };
+    setOsActivities(prev => [newAct, ...prev]);
+  };
+
   const handleAddClient = (client: Client) => {
     setClients(prev => [...prev, client]);
+    const desc = 'New client intake completed';
+    
+    // Client Activity
     const newActivity: ClientActivity = {
       id: `act-${Date.now()}`,
       timestamp: new Date(),
       type: 'New Client',
-      description: 'New client intake completed',
+      description: desc,
       clientName: client.preferredName
     };
     setActivities(prev => [newActivity, ...prev]);
-    // Trigger reset to Welcome Center
+    
+    // OS Activity
+    logOSActivity('Intake', desc, client.preferredName);
+
     setResetViewTrigger(prev => prev + 1);
   };
 
   const handleUpdateClient = (updatedClient: Client) => {
     setClients(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
+    logOSActivity('Edit', 'Client profile updated', updatedClient.preferredName);
   };
 
-  const handleLogActivity = (activity: Omit<ClientActivity, 'id' | 'timestamp'>) => {
+  const handleLogClientActivity = (activity: Omit<ClientActivity, 'id' | 'timestamp'>) => {
     const newActivity: ClientActivity = {
       id: `act-${Date.now()}`,
       timestamp: new Date(),
       ...activity
     };
     setActivities(prev => [newActivity, ...prev]);
+    // Also log OS-wide for important ones? Maybe not views to avoid clutter
+    if (activity.type !== 'View') {
+      logOSActivity(activity.type, activity.description, activity.clientName);
+    }
+  };
+
+  const handleSaveNote = (note: Note) => {
+    setNotes(prev => [note, ...prev]);
+    const client = clients.find(c => c.id === note.clientId);
+    
+    if (client) {
+      // Add to Client
+      const newContactLog = {
+        date: new Date().toISOString(),
+        type: 'Note',
+        summary: note.content.substring(0, 50) + '...'
+      };
+      
+      const updatedClient = {
+        ...client,
+        lastUpdated: new Date().toISOString(),
+        fullProfile: {
+          ...client.fullProfile,
+          contactLog: [newContactLog, ...(client.fullProfile.contactLog || [])]
+        }
+      };
+      handleUpdateClient(updatedClient);
+      handleLogClientActivity({
+        type: 'Note',
+        description: 'New note added',
+        clientName: client.preferredName
+      });
+    } else {
+      // General Note
+      logOSActivity('Note', 'New general note created', 'General');
+    }
+  };
+
+  const handleSaveTask = (task: Task) => {
+    setTasks(prev => [task, ...prev]);
+    const client = clients.find(c => c.id === task.clientId);
+
+    if (client) {
+      handleLogClientActivity({
+        type: 'Task',
+        description: `Task created: ${task.title}`,
+        clientName: client.preferredName
+      });
+    } else {
+      logOSActivity('Task', 'Administrative task created', 'General');
+    }
+  };
+
+  const handleUpdateTask = (updatedTask: Task) => {
+    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+    const status = updatedTask.isCompleted ? 'completed' : 'updated';
+    logOSActivity('Task', `Task ${status}: ${updatedTask.title}`, 'Tasks');
   };
 
   // --- Window Management ---
 
-  const openApp = (hub: Hub) => {
-    // Check if already open
+  const openApp = (hub: Hub | {id: string, name: string}) => {
     const existing = windows.find(w => w.hubId === hub.id);
     if (existing) {
+      if (existing.isMinimized) {
+        setWindows(prev => prev.map(w => w.id === existing.id ? { ...w, isMinimized: false } : w));
+      }
       setActiveWindowId(existing.id);
       setIsLauncherOpen(false);
       return;
     }
+
+    // Default Position (Center)
+    // We can randomize slightly to stack
+    const count = windows.length;
+    const startX = window.innerWidth / 2 - 400 + (count * 20);
+    const startY = window.innerHeight / 2 - 300 + (count * 20);
 
     const newWindow: AppWindow = {
       id: Date.now().toString(),
@@ -907,7 +1442,8 @@ export default function Desktop() {
       title: hub.name,
       isOpen: true,
       isMinimized: false,
-      zIndex: windows.length + 1
+      zIndex: windows.length + 1,
+      position: { x: startX, y: startY }
     };
     setWindows([...windows, newWindow]);
     setActiveWindowId(newWindow.id);
@@ -919,7 +1455,33 @@ export default function Desktop() {
     if (activeWindowId === id) setActiveWindowId(null);
   };
 
+  const minimizeWindow = (id: string) => {
+    setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: true } : w));
+    setActiveWindowId(null); // Deselect
+  };
+
+  const restoreWindow = (id: string) => {
+    setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: false } : w));
+    setActiveWindowId(id);
+  };
+
   const toggleLauncher = () => setIsLauncherOpen(!isLauncherOpen);
+
+  const openActivityLog = () => {
+    openApp({ id: 'activity-log', name: 'Recent Activity Log' });
+  };
+
+  const openPriorities = () => {
+    openApp({ id: 'priorities', name: 'Top Priorities' });
+  };
+
+  const openUrgent = () => {
+    openApp({ id: 'urgent', name: 'Urgent Follow Ups' });
+  };
+
+  const openWeekly = () => {
+    openApp({ id: 'weekly', name: 'Weekly Overview' });
+  };
 
   // --- AI Chat Logic ---
 
@@ -937,7 +1499,6 @@ export default function Desktop() {
     setInput('');
     setIsLoading(true);
 
-    // Context from active window
     let context = "";
     if (activeWindowId) {
       const activeWin = windows.find(w => w.id === activeWindowId);
@@ -1021,7 +1582,8 @@ export default function Desktop() {
           key={hub.id}
           onClick={() => openApp(hub)}
           className={`p-2.5 rounded-xl transition-all duration-200 group relative
-            ${windows.some(w => w.hubId === hub.id) ? 'bg-white shadow-sm ring-1 ring-black/5' : 'hover:bg-white/50 hover:shadow-sm'}
+            ${windows.some(w => w.hubId === hub.id && !w.isMinimized) ? 'bg-white shadow-sm ring-1 ring-black/5' : 'hover:bg-white/50 hover:shadow-sm'}
+            ${windows.some(w => w.hubId === hub.id && w.isMinimized) ? 'opacity-75' : ''}
           `}
         >
           <div className={`${hub.color} w-6 h-6 rounded-md flex items-center justify-center text-white shadow-sm`}>
@@ -1031,7 +1593,7 @@ export default function Desktop() {
             {hub.name}
           </span>
           {windows.some(w => w.hubId === hub.id) && (
-            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-gray-600"></div>
+            <div className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${windows.find(w => w.hubId === hub.id)?.isMinimized ? 'bg-gray-400' : 'bg-gray-600'}`}></div>
           )}
         </button>
       ))}
@@ -1055,19 +1617,32 @@ export default function Desktop() {
       {/* Left Column */}
       <div className="col-span-12 md:col-span-3 flex flex-col gap-4 pointer-events-auto">
         {/* Today's Control Panel */}
-        <div className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50">
+        <div 
+          className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50"
+        >
           <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
             <Activity size={16} className="mr-2 text-indigo-500"/> Control Panel
           </h3>
-          <div className="space-y-3">
-             <div className="flex items-center justify-between p-2 bg-white/50 rounded-lg">
-                <span className="text-xs font-medium text-gray-600">Load</span>
-                <span className="text-xs font-bold text-green-600">Normal</span>
+          
+          <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+             <button onClick={openPriorities} className="bg-rose-100 text-rose-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-rose-200 transition">Priorities</button>
+             <button onClick={openUrgent} className="bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-amber-200 transition">Urgent</button>
+             <button onClick={openWeekly} className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-indigo-200 transition">Weekly</button>
+          </div>
+
+          <div 
+             onClick={openActivityLog}
+             className="cursor-pointer hover:bg-white/70 transition rounded-xl"
+          >
+             <div className="space-y-2">
+                {osActivities.slice(0, 3).map(act => (
+                   <div key={act.id} className="flex justify-between items-center text-xs border-b border-gray-400/10 pb-1 last:border-0">
+                      <span className="font-medium text-gray-700 truncate w-24">{act.target || act.type}</span>
+                      <span className="text-gray-500">{act.description.substring(0, 20)}...</span>
+                   </div>
+                ))}
              </div>
-             <div className="flex items-center justify-between p-2 bg-white/50 rounded-lg">
-                <span className="text-xs font-medium text-gray-600">Urgent</span>
-                <span className="text-xs font-bold text-red-500">2 Items</span>
-             </div>
+             <div className="mt-2 text-[10px] text-indigo-600 font-semibold text-right">View Full Log &rarr;</div>
           </div>
         </div>
 
@@ -1075,7 +1650,10 @@ export default function Desktop() {
         <div className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50">
           <h3 className="text-sm font-semibold text-gray-800 mb-3">Quick Add</h3>
           <div className="flex gap-2">
-            <button className="flex-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 py-2 rounded-lg text-xs font-medium transition">
+            <button 
+              onClick={() => setShowNoteModal(true)}
+              className="flex-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 py-2 rounded-lg text-xs font-medium transition"
+            >
               Note
             </button>
             <button 
@@ -1084,11 +1662,51 @@ export default function Desktop() {
             >
               Client
             </button>
-            <button className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 py-2 rounded-lg text-xs font-medium transition">
+            <button 
+              onClick={() => setShowTaskModal(true)}
+              className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 py-2 rounded-lg text-xs font-medium transition"
+            >
               Task
             </button>
           </div>
         </div>
+
+        {/* Minimized Apps Widget */}
+        {windows.some(w => w.isMinimized) && (
+          <div className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-sm border border-white/50">
+             <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+                <Minimize size={16} className="mr-2 text-gray-500"/> Minimized Apps
+             </h3>
+             <div className="flex flex-wrap gap-2">
+                {windows.filter(w => w.isMinimized).map(w => {
+                  const hub = HUBS.find(h => h.id === w.hubId);
+                  const isActivityLog = w.hubId === 'activity-log';
+                  const isSpecial = ['priorities', 'urgent', 'weekly'].includes(w.hubId);
+                  
+                  let color = 'bg-gray-500';
+                  let icon = 'Square';
+                  
+                  if (isActivityLog) { color = 'bg-gray-700'; icon = 'Activity'; }
+                  else if (w.hubId === 'priorities') { color = 'bg-rose-600'; icon = 'AlertCircle'; }
+                  else if (w.hubId === 'urgent') { color = 'bg-amber-600'; icon = 'Clock'; }
+                  else if (w.hubId === 'weekly') { color = 'bg-indigo-600'; icon = 'CalendarDays'; }
+                  else if (hub) { color = hub.color; icon = hub.icon; }
+
+                  return (
+                    <button 
+                      key={w.id} 
+                      onClick={() => restoreWindow(w.id)}
+                      className={`${color} text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs font-medium shadow-sm hover:opacity-90 transition`}
+                    >
+                      <IconComponent name={icon} className="w-3 h-3" />
+                      <span className="truncate max-w-[80px]">{w.title}</span>
+                      <RotateCcw size={10} className="ml-1 opacity-50" />
+                    </button>
+                  );
+                })}
+             </div>
+          </div>
+        )}
       </div>
 
       {/* Middle Workspace - Mostly Empty for Windows */}
@@ -1244,21 +1862,43 @@ export default function Desktop() {
           isActive={activeWindowId === win.id}
           onActivate={(id) => setActiveWindowId(id)}
           onClose={closeWindow}
+          onMinimize={minimizeWindow}
           onOpenChat={() => setChatOpen(true)}
           clients={clients}
           activities={activities}
+          osActivities={osActivities}
+          tasks={tasks}
           onAddClient={handleAddClient}
           onUpdateClient={handleUpdateClient}
           onOpenIntake={() => setShowClientIntake(true)}
-          onLogActivity={handleLogActivity}
+          onLogActivity={handleLogClientActivity}
           resetViewTrigger={resetViewTrigger}
+          onUpdateTask={handleUpdateTask}
+          onOpenTaskModal={() => setShowTaskModal(true)}
         />
       ))}
+      
       {showClientIntake && (
         <QuickAddClientModal 
           onClose={() => setShowClientIntake(false)} 
           onClientCreated={handleAddClient}
         />
+      )}
+
+      {showNoteModal && (
+         <QuickAddNoteModal 
+            onClose={() => setShowNoteModal(false)}
+            clients={clients}
+            onSave={handleSaveNote}
+         />
+      )}
+
+      {showTaskModal && (
+         <QuickAddTaskModal 
+            onClose={() => setShowTaskModal(false)}
+            clients={clients}
+            onSave={handleSaveTask}
+         />
       )}
 
       <Launcher />

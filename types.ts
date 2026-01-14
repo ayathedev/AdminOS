@@ -14,6 +14,7 @@ export interface AppWindow {
   isOpen: boolean;
   isMinimized: boolean;
   zIndex: number;
+  position: { x: number; y: number };
 }
 
 export interface ChatMessage {
@@ -44,4 +45,28 @@ export interface ClientActivity {
   type: string;
   description: string;
   clientName?: string;
+}
+
+export interface OSActivity {
+  id: string;
+  timestamp: Date;
+  type: string;
+  target?: string;
+  description: string;
+}
+
+export interface Note {
+  id: string;
+  content: string;
+  date: string;
+  clientId?: string; // If null, general note
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  priority: 'High' | 'Medium' | 'Low';
+  dueDate?: string;
+  clientId?: string; // If null, general task
+  isCompleted: boolean;
 }

@@ -13,6 +13,7 @@ import * as LucideIcons from 'lucide-react';
 import { HUBS, MOCK_NOTIFICATIONS, MOCK_TASKS, CLIENT_INTAKE_CONTEXT, DEFAULT_CLIENT, INITIAL_PARTNERS } from '../constants';
 import { Hub, AppWindow, ChatMessage, Client, ClientActivity, OSActivity, Note, Task, Partner, OSState, OSEvent, IntakeSession } from '../types';
 import { generateOSResponse } from '../services/geminiService';
+import DebugOverlay from './DebugOverlay';
 
 // --- Icon Helper ---
 const IconComponent = ({ name, className }: { name: string, className?: string }) => {
@@ -51,11 +52,13 @@ const initialState: OSState = {
     overlays: { blurActive: false, activeModalWindowID: null },
     launcherOpen: false,
     chatOpen: false,
-    weeklyNotes: "Focus on grant reporting and hiring plan."
+    weeklyNotes: "Focus on grant reporting and hiring plan.",
+    debugMode: false
   },
   logging: {
     events: [],
-    activities: [{ id: 'os-init', timestamp: new Date(), type: 'System', description: 'OS Booted Successfully', target: 'System' }]
+    activities: [{ id: 'os-init', timestamp: new Date(), type: 'System', description: 'OS Booted Successfully', target: 'System' }],
+    lastReductionTime: 0
   },
 };
 
@@ -387,6 +390,16 @@ const handleIntakeApprove = (state: OSState, payload: any): OSState => {
    return handleWindowClose(s, { windowID });
 };
 
+const handleSystemDebugToggle = (state: OSState): OSState => {
+  return {
+    ...state,
+    system: {
+      ...state.system,
+      debugMode: !state.system.debugMode
+    }
+  };
+};
+
 // --- Reducer Routing Table ---
 
 const ROUTES: Record<string, (state: OSState, payload: any) => OSState> = {
@@ -405,6 +418,7 @@ const ROUTES: Record<string, (state: OSState, payload: any) => OSState> = {
   INTAKE_APPROVE: handleIntakeApprove,
   
   SYSTEM_RESIZE: handleSystemResize,
+  SYSTEM_DEBUG_TOGGLE: handleSystemDebugToggle,
 
   SIDEBAR_PAGE_CHANGE: (state, { windowID, newPage }) => {
      const win = state.windows.byID[windowID];
@@ -440,12 +454,31 @@ const ROUTES: Record<string, (state: OSState, payload: any) => OSState> = {
 };
 
 function osReducer(state: OSState, event: OSEvent): OSState {
+  const start = performance.now();
+  
   const handler = ROUTES[event.type];
+  let nextState = state;
+  
   if (handler) {
-     return handler(state, event.payload);
+     nextState = handler(state, event.payload);
+  } else {
+     console.warn(`No handler for event: ${event.type}`);
   }
-  console.warn(`No handler for event: ${event.type}`);
-  return state;
+
+  const end = performance.now();
+  const timeToReduce = end - start;
+
+  // Auto-log event (keep last 20) and timings
+  const newEvents = [{...event, timestamp: new Date().toISOString()}, ...nextState.logging.events].slice(0, 20);
+  
+  return {
+      ...nextState,
+      logging: {
+          ...nextState.logging,
+          events: newEvents,
+          lastReductionTime: timeToReduce
+      }
+  };
 }
 
 // --- Components ---
@@ -1205,6 +1238,18 @@ export default function Desktop() {
      return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Keyboard shortcut listener for Debug Mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault();
+        dispatchEvent({ type: 'SYSTEM_DEBUG_TOGGLE', source: 'Keyboard', payload: {} });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
     // Z-INDEX: 1 (Background) implicit
     <div className="w-full h-screen bg-cover bg-center overflow-hidden relative" style={{ backgroundImage: `linear-gradient(135deg, #e0e7ff 0%, #f3e8ff 100%)` }}>
@@ -1255,6 +1300,9 @@ export default function Desktop() {
          onTogglePin={(id: string) => dispatchEvent({ type: 'DOCK_PIN_TOGGLE', source: 'Shelf', payload: { appID: id } })} 
          onOpenApp={(hub: any) => dispatchEvent({ type: 'DOCK_ICON_CLICK', source: 'Shelf', payload: { appID: hub.id || hub } })} 
       />
+
+      {/* Z-INDEX: 10003 (Debug Overlay) */}
+      <DebugOverlay state={state} onToggle={() => dispatchEvent({ type: 'SYSTEM_DEBUG_TOGGLE', source: 'DebugOverlay', payload: {} })} />
     </div>
   );
 }

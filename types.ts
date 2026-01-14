@@ -140,9 +140,11 @@ export interface OSState {
     launcherOpen: boolean;
     chatOpen: boolean;
     weeklyNotes: string;
+    debugMode: boolean;
   };
   logging: {
     events: OSEvent[];
     activities: OSActivity[];
+    lastReductionTime: number;
   };
 }

@@ -13,10 +13,11 @@ export interface AppWindow {
   title: string;
   isOpen: boolean;
   isMinimized: boolean;
-  isMaximized?: boolean; // New: Maximize state
-  lastBounds?: { x: number; y: number; width: number; height: number }; // New: Restore bounds
-  activePage?: string; // New: Selected sidebar page
-  noteData?: { clientId?: string; noteId?: string }; // New: Data for note editor
+  isMaximized: boolean;
+  lastBounds?: { x: number; y: number; width: number; height: number };
+  activePage?: string; 
+  navigationState?: Record<string, any>; // Generic state for app internal navigation (e.g., selectedClientId)
+  noteData?: { clientId?: string; noteId?: string }; // Specific for note editor
   zIndex: number;
   position: { x: number; y: number };
   size?: { width: number; height: number };
@@ -36,7 +37,7 @@ export interface Client {
   status: 'Active' | 'Closed';
   intakeDate: string;
   lastUpdated: string;
-  fullProfile: Record<string, any>; // Stores detailed profile sections
+  fullProfile: Record<string, any>;
 }
 
 export interface ClientActivity {
@@ -58,9 +59,9 @@ export interface OSActivity {
 export interface Note {
   id: string;
   type: 'client' | 'general';
-  linkedClient?: string; // ID
-  title?: string; // New
-  body?: string; // New (mapped to summary in legacy)
+  linkedClient?: string;
+  title?: string;
+  body?: string;
   date: string;
   summary: string;
   nextSteps?: string;
@@ -73,7 +74,7 @@ export interface Task {
   title: string;
   priority: 'High' | 'Medium' | 'Low' | 'Urgent';
   dueDate?: string;
-  linkedClient?: string; // ID
+  linkedClient?: string;
   notes?: string;
   completed: boolean;
   createdAt: string;
@@ -93,8 +94,42 @@ export interface Partner {
   notes?: string;
 }
 
-export interface ControlPanelData {
-  priorities: string[]; // Task IDs
-  urgentFollowUps: string[]; // Task IDs
-  weeklyNotes: string;
+// --- Event System Types ---
+
+export interface OSEvent {
+  type: string;
+  source: string;
+  payload: any;
+  timestamp?: string;
+}
+
+export interface OSState {
+  windows: {
+    byID: Record<string, AppWindow>;
+    order: string[]; // Window IDs sorted by Z-index (last is top)
+    focusedWindowID: string | null;
+  };
+  dock: {
+    pinnedAppIDs: string[];
+    runningAppIDs: string[];
+  };
+  data: {
+    clients: Record<string, Client>;
+    notes: Record<string, Note>;
+    tasks: Record<string, Task>;
+    partners: Record<string, Partner>;
+  };
+  system: {
+    overlays: {
+      blurActive: boolean;
+      activeModalWindowID: string | null;
+    };
+    launcherOpen: boolean;
+    chatOpen: boolean;
+    weeklyNotes: string;
+  };
+  logging: {
+    events: OSEvent[];
+    activities: OSActivity[];
+  };
 }

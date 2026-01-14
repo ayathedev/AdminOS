@@ -47,7 +47,7 @@ const QuickAddClientModal = ({ onClose }: { onClose: () => void }) => {
       setIsLoading(true);
       // We send a hidden prompt to kickstart the model's behavior defined in context
       const response = await generateOSResponse(
-        "Please start the client intake process now. Introduce yourself and ask for the first piece of information according to the protocol.", 
+        "Start the Client Intake Wizard. Provide the introductory message defined in the INTRODUCTION BEHAVIOR section, then wait for the user to say 'ready'. Do not ask the first question yet.", 
         CLIENT_INTAKE_CONTEXT
       );
       setMessages([{
@@ -144,7 +144,7 @@ const QuickAddClientModal = ({ onClose }: { onClose: () => void }) => {
              <div className="flex gap-3">
                <input 
                  className="flex-1 bg-gray-100 hover:bg-gray-50 focus:bg-white border border-transparent focus:border-teal-500 rounded-xl px-4 py-3 outline-none transition-all text-sm text-gray-800"
-                 placeholder="Enter client details..."
+                 placeholder="Type 'ready' to begin or enter details..."
                  value={input}
                  onChange={e => setInput(e.target.value)}
                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
@@ -175,7 +175,7 @@ interface OSWindowProps {
   onOpenChat: () => void;
 }
 
-const OSWindow = ({ win, isActive, onActivate, onClose, onOpenChat }: OSWindowProps) => {
+const OSWindow: React.FC<OSWindowProps> = ({ win, isActive, onActivate, onClose, onOpenChat }) => {
   const hub = HUBS.find(h => h.id === win.hubId);
   if (!hub) return null;
 

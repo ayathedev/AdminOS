@@ -1,0 +1,5 @@
+{
+  "name": "AdminOS",
+  "description": "A ChromeOS-inspired administrative operating system for nonprofit management, powered by Gemini.",
+  "requestFramePermissions": []
+}
